@@ -1,101 +1,302 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useState } from "react";
+import { useAppData } from "./hooks/useAppData";
+import TodayView from "./components/TodayView";
+import TimelineView from "./components/TimelineView";
+import ChartView from "./components/ChartView";
+import KdiView from "./components/KdiView";
+import StatsView from "./components/StatsView";
+import * as db from "@/lib/db";
+import type { FullChart } from "./types";
+
+type Tab = "today" | "timeline" | "chart" | "kdi" | "stats";
+
+const TABS: { key: Tab; label: string; icon: string }[] = [
+  { key: "today", label: "今日", icon: "M12 2v10l4.24 4.24" },
+  { key: "timeline", label: "年間", icon: "M4 4v16h16" },
+  { key: "chart", label: "チャート", icon: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" },
+  { key: "kdi", label: "KDI", icon: "M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" },
+  { key: "stats", label: "実績", icon: "M18 20V10M12 20V4M6 20v-6" },
+];
+
+function Skeleton() {
+  return (
+    <div className="space-y-3 p-4">
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="h-16 animate-pulse rounded-xl bg-muted" />
+      ))}
+    </div>
+  );
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [tab, setTab] = useState<Tab>("today");
+  const data = useAppData();
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+  // FullChart cache for all charts (for TodayView/TimelineView/StatsView)
+  const [fullCharts, setFullCharts] = useState<FullChart[]>([]);
+  const [fullChartsLoaded, setFullChartsLoaded] = useState(false);
+
+  // Load all full charts once data is ready
+  const loadAllFullCharts = useCallback(async () => {
+    if (fullChartsLoaded || data.charts.length === 0) return;
+    const results = await Promise.all(
+      data.charts.map((c) => db.getFullChart(c.id))
+    );
+    setFullCharts(results);
+    setFullChartsLoaded(true);
+  }, [data.charts, fullChartsLoaded]);
+
+  // Trigger load when not loading and charts exist
+  if (!data.loading && data.charts.length > 0 && !fullChartsLoaded) {
+    loadAllFullCharts();
+  }
+
+  // ---------- Handlers ----------
+  const handleToggleCheck = useCallback(
+    (kdiId: string, date: string) => {
+      data.toggleCheck(kdiId, date);
+    },
+    [data.toggleCheck]
+  );
+
+  const handleConfirmHabit = useCallback(
+    async (taskId: string, confirmed: boolean) => {
+      if (confirmed) {
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        await data.upsertTask({
+          id: taskId,
+          habit_confirmed_month: month,
+        });
+      } else {
+        await data.upsertTask({ id: taskId, status: "active" });
+      }
+      setFullChartsLoaded(false);
+    },
+    [data.upsertTask]
+  );
+
+  const handleCompleteTask = useCallback(
+    async (taskId: string) => {
+      await data.upsertTask({ id: taskId, status: "done" });
+      setFullChartsLoaded(false);
+    },
+    [data.upsertTask]
+  );
+
+  const handleRescheduleTask = useCallback(
+    async (taskId: string, deadline: string) => {
+      await data.upsertTask({ id: taskId, deadline });
+      setFullChartsLoaded(false);
+    },
+    [data.upsertTask]
+  );
+
+  const handleRescheduleKdi = useCallback(
+    async (kdiId: string, deadline: string) => {
+      await db.upsertKdi({ id: kdiId, deadline });
+      await data.refreshKdis();
+    },
+    [data.refreshKdis]
+  );
+
+  const handleSelectChart = useCallback(
+    (chartId: string) => {
+      data.loadFullChart(chartId);
+    },
+    [data.loadFullChart]
+  );
+
+  const handleCreateChart = useCallback(
+    async (name: string, theme: string) => {
+      const c = await data.createChart(name, theme);
+      data.loadFullChart(c.id);
+      setFullChartsLoaded(false);
+    },
+    [data.createChart, data.loadFullChart]
+  );
+
+  const handleUpdateTheme = useCallback(
+    async (chartId: string, theme: string) => {
+      await data.updateTheme(chartId, theme);
+      setFullChartsLoaded(false);
+    },
+    [data.updateTheme]
+  );
+
+  const handleDeleteChart = useCallback(
+    async (id: string) => {
+      await data.deleteChart(id);
+      setFullChartsLoaded(false);
+    },
+    [data.deleteChart]
+  );
+
+  const handleUpdateSubGoal = useCallback(
+    async (id: string, label: string) => {
+      await data.updateSubGoal(id, label);
+      setFullChartsLoaded(false);
+    },
+    [data.updateSubGoal]
+  );
+
+  const handleUpsertTask = useCallback(
+    async (taskData: Record<string, unknown>) => {
+      await data.upsertTask(taskData);
+      setFullChartsLoaded(false);
+    },
+    [data.upsertTask]
+  );
+
+  const handleUpsertKdi = useCallback(
+    async (kdiData: Record<string, unknown>) => {
+      await data.upsertKdi(kdiData);
+    },
+    [data.upsertKdi]
+  );
+
+  const handleDeleteKdi = useCallback(
+    async (id: string) => {
+      await data.deleteKdi(id);
+    },
+    [data.deleteKdi]
+  );
+
+  return (
+    <div
+      className="mx-auto flex min-h-dvh max-w-[640px] flex-col"
+      style={{ background: "#faf8f3", color: "#2c2c2c" }}
+    >
+      {/* Header */}
+      <header
+        className="sticky top-0 z-20 px-4 py-3"
+        style={{
+          background: "#faf8f3",
+          borderBottom: "1px solid #c9b99a",
+        }}
+      >
+        <h1
+          className="text-base"
+          style={{ fontFamily: "'Noto Serif JP', serif", fontWeight: 700, color: "#2c2c2c" }}
+        >
+          Mandala KDI
+        </h1>
+      </header>
+
+      {/* Content */}
+      <main className="flex-1 overflow-y-auto px-4 py-4 pb-20">
+        {data.loading ? (
+          <Skeleton />
+        ) : (
+          <>
+            {tab === "today" && (
+              <TodayView
+                kdis={data.kdis}
+                checks={data.checks}
+                charts={fullCharts}
+                onToggleCheck={handleToggleCheck}
+                onConfirmHabit={handleConfirmHabit}
+              />
+            )}
+            {tab === "timeline" && (
+              <TimelineView
+                charts={fullCharts}
+                kdis={data.kdis}
+                onCompleteTask={handleCompleteTask}
+                onRescheduleTask={handleRescheduleTask}
+                onRescheduleKdi={handleRescheduleKdi}
+              />
+            )}
+            {tab === "chart" && (
+              <ChartView
+                charts={data.charts}
+                fullChart={data.fullChart}
+                kdis={data.kdis}
+                checks={data.checks}
+                onSelectChart={handleSelectChart}
+                onCreateChart={handleCreateChart}
+                onDeleteChart={handleDeleteChart}
+                onUpdateTheme={handleUpdateTheme}
+                onUpdateSubGoal={handleUpdateSubGoal}
+                onUpsertTask={handleUpsertTask}
+                onUpsertKdi={handleUpsertKdi}
+                onDeleteKdi={handleDeleteKdi}
+              />
+            )}
+            {tab === "kdi" && (
+              <KdiView
+                kdis={data.kdis}
+                charts={data.charts}
+                onUpsertKdi={handleUpsertKdi}
+                onDeleteKdi={handleDeleteKdi}
+                onRescheduleKdi={handleRescheduleKdi}
+              />
+            )}
+            {tab === "stats" && (
+              <StatsView
+                kdis={data.kdis}
+                checks={data.checks}
+                charts={fullCharts}
+                month={data.month}
+                onChangeMonth={data.setMonth}
+              />
+            )}
+          </>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+      {/* Tab bar */}
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-20"
+        style={{ background: "#2c2c2c" }}
+      >
+        <div className="mx-auto flex max-w-[640px]">
+          {TABS.map((t) => {
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className="relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] transition"
+                style={{
+                  fontFamily: "'Noto Serif JP', serif",
+                  color: active ? "#d4a853" : "#c9b99a",
+                  fontWeight: active ? 600 : 400,
+                }}
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d={t.icon} />
+                </svg>
+                <span>{t.label}</span>
+                {active && (
+                  <span
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      bottom: 0,
+                      left: "25%",
+                      right: "25%",
+                      height: 2,
+                      background: "#d4a853",
+                    }}
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }
