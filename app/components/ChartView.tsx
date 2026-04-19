@@ -82,7 +82,7 @@ function FitText({
   const [truncated, setTruncated] = useState(false);
 
   const max = isCenter ? 13 : 11;
-  const min = isCenter ? 9 : 8;
+  const min = isCenter ? 8 : 7;
 
   useLayoutEffect(() => {
     const box = boxRef.current;
@@ -127,14 +127,14 @@ function FitText({
         width: "100%",
         height: "100%",
         overflow: "hidden",
-        padding: "3px 4px",
+        padding: "2px 3px",
       }}
     >
       <span
         ref={spanRef}
         style={{
           fontSize,
-          lineHeight: 1.4,
+          lineHeight: 1.3,
           textAlign: "center",
           wordBreak: "keep-all",
           overflowWrap: "break-word",
