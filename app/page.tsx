@@ -223,6 +223,7 @@ export default function Home() {
                 onUpsertTask={handleUpsertTask}
                 onUpsertKdi={handleUpsertKdi}
                 onDeleteKdi={handleDeleteKdi}
+                onRefreshKdis={data.refreshKdis}
               />
             )}
             {tab === "kdi" && (

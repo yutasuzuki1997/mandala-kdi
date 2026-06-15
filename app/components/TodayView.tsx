@@ -26,11 +26,12 @@ function getElapsedDays() {
 }
 
 function calcRate(kdi: Kdi, checks: KdiCheck[]) {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
   const kdiChecks = checks.filter((c) => c.kdi_id === kdi.id);
 
+  // Achievement-type: binary — skip monthly rate calculation.
+  if (kdi.freq === "once") {
+    return kdiChecks.length > 0 ? 100 : 0;
+  }
   if (kdi.freq === "daily") {
     const elapsed = getElapsedDays();
     return elapsed > 0 ? Math.round((kdiChecks.length / elapsed) * 100) : 0;
@@ -87,15 +88,26 @@ export default function TodayView({
 
   const lowRateKdis = useMemo(() => {
     if (now.getDate() < 8) return [];
-    return kdis.filter((k) => calcRate(k, checks) < 50);
+    // Achievement-type KDIs don't have a monthly rate — exclude from rate banner.
+    return kdis.filter(
+      (k) => k.freq !== "once" && calcRate(k, checks) < 50
+    );
   }, [kdis, checks, now]);
 
   // ---------- KDI groups ----------
   const dailyKdis = kdis.filter((k) => k.freq === "daily");
   const weeklyKdis = kdis.filter((k) => k.freq === "weekly");
+  const onceKdis = kdis.filter((k) => k.freq === "once");
 
   const isChecked = (kdiId: string) =>
     checks.some((c) => c.kdi_id === kdiId && c.checked_date === todayStr);
+
+  // 'once' KDI: achieved if any check exists for this kdi (any date).
+  const isAchieved = (kdiId: string) =>
+    checks.some((c) => c.kdi_id === kdiId);
+
+  const findAchievementDate = (kdiId: string) =>
+    checks.find((c) => c.kdi_id === kdiId)?.checked_date ?? todayStr;
 
   return (
     <div className="space-y-4">
@@ -226,6 +238,66 @@ export default function TodayView({
           })}
         </div>
       </section>
+
+      {/* Achievement-type KDIs */}
+      {onceKdis.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold text-muted-foreground">
+            達成型
+          </h2>
+          <div className="space-y-2">
+            {onceKdis.map((kdi) => {
+              const achieved = isAchieved(kdi.id);
+              return (
+                <div
+                  key={kdi.id}
+                  className="flex items-center gap-3 rounded-xl border bg-card p-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={`text-sm truncate ${
+                        achieved ? "line-through text-muted-foreground" : ""
+                      }`}
+                    >
+                      {kdi.label}
+                    </p>
+                    {kdi.deadline && (
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        〜{kdi.deadline}
+                      </p>
+                    )}
+                  </div>
+                  {achieved ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                        達成済み
+                      </span>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() =>
+                          onToggleCheck(kdi.id, findAchievementDate(kdi.id))
+                        }
+                      >
+                        取消
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="xs"
+                      variant="default"
+                      className="shrink-0"
+                      onClick={() => onToggleCheck(kdi.id, todayStr)}
+                    >
+                      達成する
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Weekly KDIs */}
       <section>

@@ -30,7 +30,7 @@ export interface Kdi {
   task_id: string;
   user_id: string;
   label: string;
-  freq: "daily" | "weekly";
+  freq: "daily" | "weekly" | "once";
   target_per_month: number | null;
   threshold: number;
   deadline: string | null;

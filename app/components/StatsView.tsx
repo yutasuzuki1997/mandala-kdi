@@ -26,6 +26,10 @@ function getElapsedDays(month: string) {
 function calcRate(kdi: Kdi, checks: KdiCheck[], month: string) {
   const kdiChecks = checks.filter((c) => c.kdi_id === kdi.id);
 
+  // Achievement-type: binary — skip monthly rate calculation.
+  if (kdi.freq === "once") {
+    return kdiChecks.length > 0 ? 100 : 0;
+  }
   if (kdi.freq === "daily") {
     const elapsed = getElapsedDays(month);
     return elapsed > 0 ? Math.round((kdiChecks.length / elapsed) * 100) : 0;
@@ -178,7 +182,7 @@ export default function StatsView({
                     />
                   </div>
                   <span className="text-[10px] text-muted-foreground">
-                    {kdi.freq === "daily" ? "日次" : "週次"}
+                    {kdi.freq === "daily" ? "日次" : kdi.freq === "weekly" ? "週次" : "達成型"}
                   </span>
                 </div>
               </div>

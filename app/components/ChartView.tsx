@@ -10,6 +10,8 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import Modal from "./Modal";
+import * as db from "@/lib/db";
+import { getUserId } from "@/lib/user";
 import type { Chart, FullChart, Task, Kdi, KdiCheck } from "@/app/types";
 
 /* ================================================================
@@ -29,6 +31,7 @@ interface Props {
   onUpsertTask: (data: Record<string, unknown>) => void;
   onUpsertKdi: (data: Record<string, unknown>) => void;
   onDeleteKdi: (id: string) => void;
+  onRefreshKdis?: () => void | Promise<void>;
 }
 
 interface CellData {
@@ -82,7 +85,7 @@ function FitText({
   const [truncated, setTruncated] = useState(false);
 
   const max = isCenter ? 13 : 11;
-  const min = isCenter ? 8 : 7;
+  const min = 9;
 
   useLayoutEffect(() => {
     const box = boxRef.current;
@@ -105,7 +108,6 @@ function FitText({
     }
     span.style.fontSize = `${s}px`;
     if (
-      !isCenter &&
       s <= min &&
       (span.scrollHeight > box.clientHeight ||
         span.scrollWidth > box.clientWidth)
@@ -138,7 +140,7 @@ function FitText({
           textAlign: "center",
           wordBreak: "keep-all",
           overflowWrap: "break-word",
-          whiteSpace: "normal",
+          whiteSpace: "pre-wrap",
           fontFamily: isTheme || isSgCenter ? FONT_SERIF : FONT_SANS,
           color: isTheme ? C_BG : "inherit",
           fontWeight: isTheme ? 600 : isSgCenter ? 600 : isCenter ? 500 : 400,
@@ -146,7 +148,7 @@ function FitText({
           ...(truncated
             ? {
                 display: "-webkit-box",
-                WebkitLineClamp: 2,
+                WebkitLineClamp: 4,
                 WebkitBoxOrient: "vertical" as const,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -165,8 +167,12 @@ function FitText({
    ================================================================ */
 
 function calcKdiRate(kdi: Kdi, checks: KdiCheck[]): number {
-  const now = new Date();
   const kdiChecks = checks.filter((c) => c.kdi_id === kdi.id);
+  // Achievement-type: binary — achieved (100) or not (0). No monthly rate.
+  if (kdi.freq === "once") {
+    return kdiChecks.length > 0 ? 100 : 0;
+  }
+  const now = new Date();
   if (kdi.freq === "daily") {
     const elapsed = now.getDate();
     return elapsed > 0 ? Math.round((kdiChecks.length / elapsed) * 100) : 0;
@@ -407,6 +413,36 @@ function MandalaGrid({
   checks: KdiCheck[];
   onCellClick: (cell: CellData) => void;
 }) {
+  const [tooltip, setTooltip] = useState<{
+    text: string;
+    left: number;
+    top: number;
+    placement: "top" | "bottom";
+  } | null>(null);
+
+  const showTooltip = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>, text: string) => {
+      // Skip on touch / coarse-pointer devices — mobile uses the edit modal
+      // (opened on tap) to show full text.
+      if (
+        typeof window !== "undefined" &&
+        !window.matchMedia("(hover: hover) and (pointer: fine)").matches
+      )
+        return;
+      if (!text) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const spaceAbove = rect.top;
+      const placement: "top" | "bottom" = spaceAbove > 60 ? "top" : "bottom";
+      setTooltip({
+        text,
+        left: rect.left + rect.width / 2,
+        top: placement === "top" ? rect.top : rect.bottom,
+        placement,
+      });
+    },
+    []
+  );
+
   return (
     <div
       style={{
@@ -419,6 +455,7 @@ function MandalaGrid({
         width: "100%",
         maxWidth: "100%",
         overflow: "hidden",
+        position: "relative",
       }}
     >
       {cells.map((cell, i) => {
@@ -432,13 +469,16 @@ function MandalaGrid({
           <button
             key={i}
             type="button"
+            title={cell.label || undefined}
             onClick={() => onCellClick(cell)}
             onMouseEnter={(e) => {
               if (!cell.isThemeCenter)
                 e.currentTarget.style.background = "#f5f0e3";
+              showTooltip(e, cell.label);
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = restoreBg;
+              setTooltip(null);
             }}
             style={style}
           >
@@ -473,9 +513,245 @@ function MandalaGrid({
           </button>
         );
       })}
+      {tooltip && (
+        <div
+          role="tooltip"
+          style={{
+            position: "fixed",
+            left: tooltip.left,
+            top: tooltip.top,
+            transform:
+              tooltip.placement === "top"
+                ? "translate(-50%, calc(-100% - 6px))"
+                : "translate(-50%, 6px)",
+            background: C_INK,
+            color: C_BG,
+            fontSize: 12,
+            lineHeight: 1.4,
+            padding: "6px 10px",
+            borderRadius: 4,
+            maxWidth: 200,
+            wordBreak: "keep-all",
+            overflowWrap: "break-word",
+            whiteSpace: "pre-wrap",
+            zIndex: 50,
+            pointerEvents: "none",
+            fontFamily: FONT_SANS,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+          }}
+        >
+          {tooltip.text}
+        </div>
+      )}
     </div>
   );
 }
+
+/* ================================================================
+   Paste parser (tab-separated)
+   ================================================================ */
+
+function parseGrid(text: string, rows: number, cols: number): string[][] | null {
+  const lines = text.replace(/\r/g, "").split("\n");
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+  if (lines.length < rows) return null;
+  const grid: string[][] = [];
+  for (let r = 0; r < rows; r++) {
+    const cells = lines[r].split("\t");
+    if (cells.length < cols) return null;
+    grid.push(cells.slice(0, cols));
+  }
+  return grid;
+}
+
+/* ================================================================
+   Detail parser (1 row = 1 task / KDI line, tab-separated)
+   Columns: KPI | サブKPI | タイプ | 期日 | KDI | 頻度 | 月目標 | 閾値 | KDI期日
+   ================================================================ */
+
+type DetailKdi = {
+  label: string;
+  freq: "daily" | "weekly" | "once";
+  target_per_month: number | null;
+  threshold: number;
+  deadline: string | null;
+};
+type DetailTask = {
+  label: string;
+  type: "achieve" | "habit";
+  deadline: string | null;
+  kdis: DetailKdi[];
+};
+type DetailKpi = { label: string; tasks: DetailTask[] };
+type DetailParse = { theme: string | null; kpis: DetailKpi[] };
+
+function normType(s: string): "achieve" | "habit" {
+  const v = s.trim().toLowerCase();
+  return v === "habit" || v === "習慣" ? "habit" : "achieve";
+}
+function normFreq(s: string): "daily" | "weekly" | "once" {
+  const v = s.trim().toLowerCase();
+  if (v === "weekly" || v === "毎週" || v === "週") return "weekly";
+  if (v === "once" || v === "一回" || v === "一度" || v === "1回") return "once";
+  return "daily";
+}
+function normNum(s: string): number | null {
+  const v = s.replace(/[^0-9.]/g, "");
+  if (!v) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
+function parseDetail(
+  text: string
+): { data: DetailParse } | { error: string } {
+  const lines = text.replace(/\r/g, "").split("\n");
+  let theme: string | null = null;
+  const kpis: DetailKpi[] = [];
+  const kpiByLabel = new Map<string, DetailKpi>();
+
+  for (const raw of lines) {
+    if (raw.trim() === "") continue;
+    const cells = raw.split("\t").map((c) => c.trim());
+    const first = cells[0] ?? "";
+
+    if (/^(kgi|テーマ|中心テーマ)$/i.test(first)) {
+      theme = (cells[1] ?? "").trim() || theme;
+      continue;
+    }
+    if (/^(kpi|サブ目標)$/i.test(first)) continue; // header row
+
+    const kpiLabel = cells[0] ?? "";
+    const taskLabel = cells[1] ?? "";
+    const typeS = cells[2] ?? "";
+    const taskDeadline = cells[3] ?? "";
+    const kdiLabel = cells[4] ?? "";
+    const freqS = cells[5] ?? "";
+    const targetS = cells[6] ?? "";
+    const thresholdS = cells[7] ?? "";
+    const kdiDeadline = cells[8] ?? "";
+
+    let kpi: DetailKpi | undefined;
+    if (kpiLabel) {
+      kpi = kpiByLabel.get(kpiLabel);
+      if (!kpi) {
+        kpi = { label: kpiLabel, tasks: [] };
+        kpiByLabel.set(kpiLabel, kpi);
+        kpis.push(kpi);
+      }
+    } else {
+      kpi = kpis[kpis.length - 1];
+    }
+    if (!kpi) return { error: "最初のデータ行にKPI名が必要です" };
+
+    let task: DetailTask | undefined;
+    if (taskLabel) {
+      task = {
+        label: taskLabel,
+        type: normType(typeS),
+        deadline: taskDeadline.trim() || null,
+        kdis: [],
+      };
+      kpi.tasks.push(task);
+    } else {
+      task = kpi.tasks[kpi.tasks.length - 1];
+    }
+
+    if (kdiLabel) {
+      if (!task)
+        return { error: `KDI「${kdiLabel}」に対応するサブKPIがありません` };
+      const freq = normFreq(freqS);
+      task.kdis.push({
+        label: kdiLabel,
+        freq,
+        target_per_month: freq === "weekly" ? normNum(targetS) ?? 4 : null,
+        threshold: freq === "once" ? 100 : normNum(thresholdS) ?? 90,
+        deadline: kdiDeadline.trim() || null,
+      });
+    }
+  }
+
+  if (kpis.length === 0) return { error: "データ行がありません" };
+  if (kpis.length > 8)
+    return { error: `KPIは最大8件です（${kpis.length}件検出）` };
+  for (const k of kpis) {
+    if (k.tasks.length > 8)
+      return {
+        error: `「${k.label}」のサブKPIが8件を超えています（${k.tasks.length}件）`,
+      };
+  }
+  return { data: { theme, kpis } };
+}
+
+/* ================================================================
+   Import template download + prompt collection
+   ================================================================ */
+
+const TEMPLATE_TSV = [
+  "KGI\t中心目標をここに",
+  "KPI\tサブKPI\tタイプ\t期日\tKDI\t頻度\t月目標\t閾値\tKDI期日",
+  "体力作り\t毎朝走る\thabit\t\t5km走る\tdaily\t\t90\t",
+  "体力作り\t筋トレ\thabit\t2026-09-01\t腕立て30回\tweekly\t12\t80\t2026-08-31",
+  "資格取得\t過去問演習\tachieve\t2026-09-01\t\t\t\t\t",
+].join("\n");
+
+function downloadTemplate() {
+  // BOM so Excel opens Japanese TSV without mojibake.
+  const blob = new Blob(["﻿" + TEMPLATE_TSV], {
+    type: "text/tab-separated-values;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "mandala-import-template.tsv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const PROMPTS: { title: string; desc: string; body: string }[] = [
+  {
+    title: "① 目標を整理する（最初にClaudeへ渡す）",
+    desc: "Claudeと壁打ちしながらKGI→KPI→サブKPI→KDIを設計します。",
+    body: `あなたは目標設計のコーチです。私の目標をマンダラチャート（オープンウィンドウ64）の構造で一緒に整理してください。
+
+【構造】
+- KGI: 中心に置く最終目標（1つ）
+- KPI: KGI達成に必要な要素（最大8つ）
+- サブKPI: 各KPIを達成するための具体的な行動・課題（各KPIにつき最大8つ）。「達成型(achieve＝一度やれば完了)」か「習慣型(habit＝継続)」のどちらか。任意で期日を持てる。
+- KDI: 各サブKPIの達成度を測る指標（1サブKPIに複数可）。頻度は daily / weekly / once。週次は「月の目標回数」、達成基準の「閾値(%)」、任意で独自の「期日」を持てる。
+
+【進め方】
+1. まず私のKGI（中心目標）をヒアリングして言語化する
+2. KGI達成に必要なKPIを一緒に洗い出す（最大8）
+3. 各KPIごとにサブKPIを具体化する（各最大8、達成型/習慣型と期日も）
+4. 各サブKPIに紐づくKDIを設計する（頻度・回数・閾値・期日）
+5. 抜け漏れや曖昧さを質問で深掘りする
+
+一度に全部聞かず、1ステップずつ対話で進めてください。まずは私のKGIから質問してください。`,
+  },
+  {
+    title: "② インポート形式に変換する（整理し終わったら渡す）",
+    desc: "対話で決めた内容を、このアプリに貼り付けられるタブ区切り表に変換します。",
+    body: `ここまでで整理したマンダラチャートの内容を、下記フォーマットのタブ区切りテキストに変換し、コードブロックで出力してください。説明文は不要です。
+
+【ルール】
+- 1行目は「KGI<TAB>中心目標の文言」（<TAB>は半角タブ文字）
+- 2行目はヘッダ: KPI<TAB>サブKPI<TAB>タイプ<TAB>期日<TAB>KDI<TAB>頻度<TAB>月目標<TAB>閾値<TAB>KDI期日
+- 3行目以降が「1行＝1サブKPI」
+- 列の区切りはすべて半角タブ文字。値が無い列は空欄（タブは省略せず詰めない）
+- タイプ: achieve（達成型）/ habit（習慣型）
+- 頻度: daily / weekly / once。月目標は weekly のときだけ数値、閾値は % の数値（once は空でよい）、期日は YYYY-MM-DD
+- 1つのサブKPIに複数KDIがある場合、2件目以降はKPI列とサブKPI列を空欄にして次の行に書く（直前のサブKPIに紐づく）
+- KPIは最大8、各KPIのサブKPIは最大8
+
+【出力例（タブ区切り）】
+KGI	中心目標
+KPI	サブKPI	タイプ	期日	KDI	頻度	月目標	閾値	KDI期日
+体力作り	毎朝走る	habit		5km走る	daily		90
+			ストレッチ	daily		80
+資格取得	過去問演習	achieve	2026-09-01				`,
+  },
+];
 
 /* ================================================================
    Main Component
@@ -494,6 +770,7 @@ export default function ChartView({
   onUpsertTask,
   onUpsertKdi,
   onDeleteKdi,
+  onRefreshKdis,
 }: Props) {
   const [selectedChartId, setSelectedChartId] = useState("");
 
@@ -518,13 +795,33 @@ export default function ChartView({
   const [showKdiForm, setShowKdiForm] = useState(false);
   const [kdiForm, setKdiForm] = useState({
     label: "",
-    freq: "daily" as "daily" | "weekly",
+    freq: "daily" as "daily" | "weekly" | "once",
     target_per_month: 4,
     threshold: 90,
     deadline: "",
   });
 
   const [fullscreen, setFullscreen] = useState(false);
+
+  // Import state
+  const [showImport, setShowImport] = useState(false);
+  const [importMode, setImportMode] = useState<"block" | "full" | "detail">(
+    "block"
+  );
+  const [importText, setImportText] = useState("");
+  const [importSgIdx, setImportSgIdx] = useState(0);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [showPrompts, setShowPrompts] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+
+  const copyPrompt = useCallback((text: string, idx: number) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx((c) => (c === idx ? null : c)), 1500);
+    });
+  }, []);
 
   useEffect(() => {
     if (charts.length > 0 && !selectedChartId) {
@@ -623,7 +920,8 @@ export default function ChartView({
       freq: kdiForm.freq,
       target_per_month:
         kdiForm.freq === "weekly" ? kdiForm.target_per_month : null,
-      threshold: kdiForm.threshold,
+      // Achievement-type is binary: threshold is conceptually "achieved once".
+      threshold: kdiForm.freq === "once" ? 100 : kdiForm.threshold,
       deadline: kdiForm.deadline || null,
     });
     setShowKdiForm(false);
@@ -634,6 +932,166 @@ export default function ChartView({
     setShowDeleteConfirm(false);
     setSelectedChartId("");
   }, [selectedChartId, onDeleteChart]);
+
+  /* ------ Import ------ */
+  const handleImport = useCallback(async () => {
+    if (!fullChart) return;
+    setImportError(null);
+    setImporting(true);
+    try {
+      const sgs = [...(fullChart.sub_goals ?? [])].sort(
+        (a, b) => a.position - b.position
+      );
+      const ops: Promise<unknown>[] = [];
+
+      if (importMode === "detail") {
+        const parsed = parseDetail(importText);
+        if ("error" in parsed) {
+          setImportError(parsed.error);
+          setImporting(false);
+          return;
+        }
+        const { theme, kpis } = parsed.data;
+        const uid = await getUserId();
+        if (theme) await db.updateChartTheme(fullChart.id, theme);
+
+        // Sequential: tasks must be upserted first so KDIs can reference ids.
+        for (let ki = 0; ki < kpis.length; ki++) {
+          const kpi = kpis[ki];
+          const sg = sgs[ki];
+          if (!sg) continue;
+          await db.updateSubGoal(sg.id, kpi.label);
+          for (let ti = 0; ti < kpi.tasks.length; ti++) {
+            const t = kpi.tasks[ti];
+            const existing = sg.tasks?.find((x) => x.position === ti);
+            const row = await db.upsertTask({
+              ...(existing ? { id: existing.id } : {}),
+              sub_goal_id: sg.id,
+              position: ti,
+              label: t.label,
+              type: t.type,
+              deadline: t.deadline,
+            });
+            const taskId = (row as { id: string }).id;
+            for (const k of t.kdis) {
+              const existingKdi = kdis.find(
+                (x) => x.task_id === taskId && x.label === k.label
+              );
+              await db.upsertKdi({
+                ...(existingKdi ? { id: existingKdi.id } : {}),
+                task_id: taskId,
+                user_id: uid,
+                label: k.label,
+                freq: k.freq,
+                target_per_month: k.target_per_month,
+                threshold: k.threshold,
+                deadline: k.deadline,
+              });
+            }
+          }
+        }
+      } else if (importMode === "block") {
+        const grid = parseGrid(importText, 3, 3);
+        if (!grid) {
+          setImportError("3×3（9セル）のデータを貼り付けてください");
+          setImporting(false);
+          return;
+        }
+        const sg = sgs[importSgIdx];
+        if (!sg) {
+          setImportError("サブ目標が見つかりません");
+          setImporting(false);
+          return;
+        }
+        const centerLabel = grid[1][1].trim();
+        if (centerLabel) ops.push(db.updateSubGoal(sg.id, centerLabel));
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 3; c++) {
+            if (r === 1 && c === 1) continue;
+            const label = grid[r][c]?.trim() ?? "";
+            if (!label) continue;
+            const cIdx = r * 3 + c;
+            const tPos = cIdx > 4 ? cIdx - 1 : cIdx;
+            const existing = sg.tasks?.find((t) => t.position === tPos);
+            ops.push(
+              db.upsertTask({
+                ...(existing ? { id: existing.id } : {}),
+                sub_goal_id: sg.id,
+                position: tPos,
+                label,
+              })
+            );
+          }
+        }
+      } else {
+        const grid = parseGrid(importText, 9, 9);
+        if (!grid) {
+          setImportError("9×9（81セル）のデータを貼り付けてください");
+          setImporting(false);
+          return;
+        }
+        for (let bIdx = 0; bIdx < 9; bIdx++) {
+          const bRow = Math.floor(bIdx / 3);
+          const bCol = bIdx % 3;
+          for (let cIdx = 0; cIdx < 9; cIdx++) {
+            const r = Math.floor(cIdx / 3);
+            const c = cIdx % 3;
+            const label = grid[bRow * 3 + r][bCol * 3 + c]?.trim() ?? "";
+            if (!label) continue;
+            if (bIdx === 4) {
+              if (cIdx === 4) {
+                ops.push(db.updateChartTheme(fullChart.id, label));
+              } else {
+                const sgPos = cIdx > 4 ? cIdx - 1 : cIdx;
+                const sg = sgs[sgPos];
+                if (sg) ops.push(db.updateSubGoal(sg.id, label));
+              }
+            } else {
+              const sgPos = bIdx > 4 ? bIdx - 1 : bIdx;
+              const sg = sgs[sgPos];
+              if (!sg) continue;
+              if (cIdx === 4) {
+                ops.push(db.updateSubGoal(sg.id, label));
+              } else {
+                const tPos = cIdx > 4 ? cIdx - 1 : cIdx;
+                const existing = sg.tasks?.find((t) => t.position === tPos);
+                ops.push(
+                  db.upsertTask({
+                    ...(existing ? { id: existing.id } : {}),
+                    sub_goal_id: sg.id,
+                    position: tPos,
+                    label,
+                  })
+                );
+              }
+            }
+          }
+        }
+      }
+
+      await Promise.all(ops);
+      onSelectChart(fullChart.id);
+      if (importMode === "detail") await onRefreshKdis?.();
+      setToast("インポート完了");
+      setShowImport(false);
+      setImportText("");
+      setTimeout(() => setToast(null), 2500);
+    } catch (e: unknown) {
+      setImportError(
+        e instanceof Error ? e.message : "インポートに失敗しました"
+      );
+    } finally {
+      setImporting(false);
+    }
+  }, [
+    fullChart,
+    importMode,
+    importText,
+    importSgIdx,
+    kdis,
+    onSelectChart,
+    onRefreshKdis,
+  ]);
 
   return (
     <div className="space-y-3">
@@ -657,6 +1115,20 @@ export default function ChartView({
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+        {charts.length > 0 && fullChart && (
+          <button
+            type="button"
+            onClick={() => {
+              setImportError(null);
+              setImportText("");
+              setShowImport(true);
+            }}
+            className="text-sm hover:underline"
+            style={{ color: C_BROWN, fontFamily: FONT_SERIF }}
+          >
+            📋 インポート
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setShowCreateChart(true)}
@@ -776,7 +1248,13 @@ export default function ChartView({
       {/* ===== Theme Edit ===== */}
       <Modal open={editingTheme} onClose={() => setEditingTheme(false)} title="中心テーマの編集">
         <div className="space-y-4">
-          <input type="text" value={themeLabel} onChange={(e) => setThemeLabel(e.target.value)} className="w-full rounded-lg border bg-background px-3 py-2 text-sm" autoFocus />
+          <textarea
+            rows={3}
+            value={themeLabel}
+            onChange={(e) => setThemeLabel(e.target.value)}
+            className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm"
+            autoFocus
+          />
           <Button className="w-full" disabled={!themeLabel.trim()} onClick={saveTheme}>保存</Button>
         </div>
       </Modal>
@@ -785,7 +1263,13 @@ export default function ChartView({
       <Modal open={!!editingSg} onClose={() => setEditingSg(null)} title="サブ目標の編集">
         {editingSg && (
           <div className="space-y-4">
-            <input type="text" value={sgLabel} onChange={(e) => setSgLabel(e.target.value)} className="w-full rounded-lg border bg-background px-3 py-2 text-sm" autoFocus />
+            <textarea
+              rows={2}
+              value={sgLabel}
+              onChange={(e) => setSgLabel(e.target.value)}
+              className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm"
+              autoFocus
+            />
             <Button className="w-full" disabled={!sgLabel.trim()} onClick={saveSg}>保存</Button>
           </div>
         )}
@@ -803,11 +1287,11 @@ export default function ChartView({
             {/* Task name */}
             <div>
               <label className="mb-1.5 block text-xs font-medium text-muted-foreground">タスク名</label>
-              <input
-                type="text"
+              <textarea
+                rows={3}
                 value={taskForm.label}
                 onChange={(e) => setTaskForm((f) => ({ ...f, label: e.target.value }))}
-                className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm"
+                className="w-full resize-none rounded-lg border bg-background px-3 py-2.5 text-sm"
                 placeholder="タスクを入力"
                 autoFocus
               />
@@ -857,15 +1341,27 @@ export default function ChartView({
                           <p className="text-sm truncate">{kdi.label}</p>
                           <div className="mt-1 flex items-center gap-1.5">
                             <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                              kdi.freq === "daily" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
+                              kdi.freq === "daily"
+                                ? "bg-blue-100 text-blue-700"
+                                : kdi.freq === "weekly"
+                                ? "bg-purple-100 text-purple-700"
+                                : "bg-amber-100 text-amber-700"
                             }`}>
-                              {kdi.freq === "daily" ? "デイリー" : "ウィークリー"}
+                              {kdi.freq === "daily" ? "デイリー" : kdi.freq === "weekly" ? "ウィークリー" : "達成型"}
                             </span>
-                            <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                              rate >= 80 ? "bg-green-100 text-green-700" : rate >= 50 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"
-                            }`}>
-                              実行率 {rate}%
-                            </span>
+                            {kdi.freq === "once" ? (
+                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                rate >= 100 ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
+                              }`}>
+                                {rate >= 100 ? "達成済み" : "未達"}
+                              </span>
+                            ) : (
+                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                rate >= 80 ? "bg-green-100 text-green-700" : rate >= 50 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"
+                              }`}>
+                                実行率 {rate}%
+                              </span>
+                            )}
                           </div>
                         </div>
                         <button
@@ -919,10 +1415,10 @@ export default function ChartView({
             <div>
               <label className="mb-1.5 block text-xs font-medium text-muted-foreground">頻度</label>
               <div className="flex gap-2">
-                {(["daily", "weekly"] as const).map((f) => (
+                {(["daily", "weekly", "once"] as const).map((f) => (
                   <button key={f} onClick={() => setKdiForm((fm) => ({ ...fm, freq: f }))}
                     className={`flex-1 rounded-lg border px-3 py-2 text-sm transition ${kdiForm.freq === f ? "border-primary bg-primary/10 font-medium" : "bg-card"}`}>
-                    {f === "daily" ? "デイリー" : "ウィークリー"}
+                    {f === "daily" ? "デイリー" : f === "weekly" ? "ウィークリー" : "達成型"}
                   </button>
                 ))}
               </div>
@@ -935,12 +1431,14 @@ export default function ChartView({
                   className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm" />
               </div>
             )}
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">達成閾値（%）</label>
-              <input type="number" value={kdiForm.threshold}
-                onChange={(e) => setKdiForm((f) => ({ ...f, threshold: parseInt(e.target.value) || 90 }))}
-                className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm" />
-            </div>
+            {kdiForm.freq !== "once" && (
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">達成閾値（%）</label>
+                <input type="number" value={kdiForm.threshold}
+                  onChange={(e) => setKdiForm((f) => ({ ...f, threshold: parseInt(e.target.value) || 90 }))}
+                  className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm" />
+              </div>
+            )}
             <div>
               <label className="mb-1.5 block text-xs font-medium text-muted-foreground">期日</label>
               <input type="date" value={kdiForm.deadline}
@@ -971,6 +1469,284 @@ export default function ChartView({
           }}>作成</Button>
         </div>
       </Modal>
+
+      {/* ===== Import ===== */}
+      <Modal
+        open={showImport}
+        onClose={() => {
+          if (!importing) setShowImport(false);
+        }}
+        title="スプレッドシートから貼り付け"
+        size="lg"
+      >
+        <div className="space-y-4">
+          {/* Mode tabs */}
+          <div className="flex gap-2">
+            {(["block", "full", "detail"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setImportMode(m);
+                  setImportError(null);
+                }}
+                className="flex-1 px-3 py-2 text-sm transition"
+                style={{
+                  background: importMode === m ? C_INK : "transparent",
+                  color: importMode === m ? C_BG : C_INK_SOFT,
+                  border: `1px solid ${importMode === m ? C_INK : C_BROWN_SOFT}`,
+                  borderRadius: 4,
+                  fontFamily: FONT_SERIF,
+                  fontWeight: importMode === m ? 600 : 500,
+                }}
+              >
+                {m === "block"
+                  ? "ブロック（9セル）"
+                  : m === "full"
+                  ? "全体（81セル）"
+                  : "詳細（全項目）"}
+              </button>
+            ))}
+          </div>
+
+          {/* Sub-goal selector (block mode) */}
+          {importMode === "block" && fullChart && (
+            <div>
+              <label
+                className="mb-1.5 block text-xs"
+                style={{ color: C_INK_SOFT, fontFamily: FONT_SERIF, fontWeight: 500 }}
+              >
+                対象ブロック
+              </label>
+              <select
+                value={importSgIdx}
+                onChange={(e) => setImportSgIdx(parseInt(e.target.value))}
+                className="w-full bg-transparent px-1 py-2 text-sm focus:outline-none"
+                style={{
+                  borderBottom: `1px solid ${C_BROWN}`,
+                  color: C_INK,
+                  fontFamily: FONT_SERIF,
+                }}
+              >
+                {[...(fullChart.sub_goals ?? [])]
+                  .sort((a, b) => a.position - b.position)
+                  .map((sg, i) => (
+                    <option key={sg.id} value={i}>
+                      サブ目標{i + 1}{sg.label ? `：${sg.label}` : ""}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+
+          {/* Template + prompts (detail mode) */}
+          {importMode === "detail" && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={downloadTemplate}
+                className="px-3 py-1.5 text-xs"
+                style={{
+                  border: `1px solid ${C_BROWN_SOFT}`,
+                  borderRadius: 4,
+                  color: C_INK_SOFT,
+                  fontFamily: FONT_SERIF,
+                }}
+              >
+                ⬇ テンプレ(TSV)をダウンロード
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPrompts(true)}
+                className="px-3 py-1.5 text-xs"
+                style={{
+                  border: `1px solid ${C_BROWN_SOFT}`,
+                  borderRadius: 4,
+                  color: C_INK_SOFT,
+                  fontFamily: FONT_SERIF,
+                }}
+              >
+                📖 プロンプト集を開く
+              </button>
+            </div>
+          )}
+
+          {/* Textarea */}
+          <div>
+            <label
+              className="mb-1.5 block text-xs"
+              style={{ color: C_INK_SOFT, fontFamily: FONT_SERIF, fontWeight: 500 }}
+            >
+              {importMode === "block"
+                ? "3×3（9セル）タブ区切り"
+                : importMode === "full"
+                ? "9×9（81セル）タブ区切り"
+                : "1行=1サブKPI のタブ区切り表（ヘッダ付き）"}
+            </label>
+            <textarea
+              rows={10}
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder={
+                importMode === "block"
+                  ? "タスク1\tタスク2\tタスク3\nタスク4\tサブ目標\tタスク5\nタスク6\tタスク7\tタスク8"
+                  : importMode === "full"
+                  ? "9行×9列のデータをスプレッドシートからコピーして貼り付け"
+                  : "KGI\t中心目標\nKPI\tサブKPI\tタイプ\t期日\tKDI\t頻度\t月目標\t閾値\tKDI期日\n体力作り\t毎朝走る\thabit\t\t5km走る\tdaily\t\t90\t\n体力作り\t筋トレ\thabit\t2026-09-01\t腕立て30回\tweekly\t12\t80\t2026-08-31\n資格取得\t過去問演習\tachieve\t2026-09-01\t\t\t\t\t"
+              }
+              className="w-full resize-none rounded-sm border px-3 py-2 text-xs font-mono focus:outline-none"
+              style={{
+                borderColor: C_BROWN_SOFT,
+                background: C_BG,
+                color: C_INK,
+                fontFamily: "'Courier New', monospace",
+              }}
+            />
+          </div>
+
+          {importError && (
+            <div
+              className="px-3 py-2 text-xs"
+              style={{
+                background: "#fdf0f0",
+                color: "#b84444",
+                borderLeft: `3px solid #b84444`,
+              }}
+            >
+              {importError}
+            </div>
+          )}
+
+          {importMode === "detail" ? (
+            <p
+              className="text-[11px] leading-relaxed"
+              style={{ color: C_BROWN, fontFamily: FONT_SANS }}
+            >
+              列: KPI / サブKPI / タイプ(achieve・habit) / 期日 / KDI / 頻度(daily・weekly・once) / 月目標(週次のみ) / 閾値% / KDI期日。
+              KPIは出現順に8個まで、各KPIのサブKPIは8個まで。サブKPI列を空にすると直前のサブKPIにKDIを追加（複数KDI可）。先頭に「KGI(改行→tab)中心目標」でテーマも設定。
+            </p>
+          ) : (
+            <p
+              className="text-[11px]"
+              style={{ color: C_BROWN, fontFamily: FONT_SANS }}
+            >
+              空セルはスキップされます（既存データは消えません）。
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              disabled={importing}
+              onClick={() => setShowImport(false)}
+            >
+              キャンセル
+            </Button>
+            <Button
+              className="flex-1"
+              disabled={importing || !importText.trim()}
+              onClick={handleImport}
+            >
+              {importing ? "処理中…" : "インポート"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ===== Prompt collection ===== */}
+      <Modal
+        open={showPrompts}
+        onClose={() => setShowPrompts(false)}
+        title="プロンプト集"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <p
+            className="text-xs leading-relaxed"
+            style={{ color: C_BROWN, fontFamily: FONT_SANS }}
+          >
+            ①をClaude等に渡して目標を整理 →
+            決まったら②を渡してタブ区切りに変換 →
+            出力を「詳細（全項目）」タブに貼り付けてインポート。
+          </p>
+          {PROMPTS.map((p, i) => (
+            <div
+              key={i}
+              style={{
+                border: `1px solid ${C_BROWN_SOFT}`,
+                borderRadius: 4,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                className="flex items-start justify-between gap-2 px-3 py-2"
+                style={{ background: C_PAPER_DEEP }}
+              >
+                <div>
+                  <div
+                    className="text-sm"
+                    style={{
+                      color: C_INK,
+                      fontFamily: FONT_SERIF,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {p.title}
+                  </div>
+                  <div
+                    className="text-[11px]"
+                    style={{ color: C_INK_SOFT, fontFamily: FONT_SANS }}
+                  >
+                    {p.desc}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyPrompt(p.body, i)}
+                  className="shrink-0 px-2.5 py-1 text-xs"
+                  style={{
+                    background: copiedIdx === i ? C_GOLD : C_INK,
+                    color: C_BG,
+                    borderRadius: 4,
+                    fontFamily: FONT_SERIF,
+                  }}
+                >
+                  {copiedIdx === i ? "コピー済" : "コピー"}
+                </button>
+              </div>
+              <pre
+                className="max-h-48 overflow-auto whitespace-pre-wrap px-3 py-2 text-[11px]"
+                style={{
+                  background: C_BG,
+                  color: C_INK,
+                  fontFamily: "'Courier New', monospace",
+                  margin: 0,
+                }}
+              >
+                {p.body}
+              </pre>
+            </div>
+          ))}
+        </div>
+      </Modal>
+
+      {/* ===== Toast ===== */}
+      {toast && (
+        <div
+          className="fixed bottom-20 left-1/2 z-50 -translate-x-1/2 px-4 py-2 text-sm shadow-lg"
+          style={{
+            background: C_INK,
+            color: C_BG,
+            borderRadius: 4,
+            fontFamily: FONT_SERIF,
+            fontWeight: 500,
+            letterSpacing: "0.05em",
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

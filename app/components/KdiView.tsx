@@ -25,19 +25,17 @@ export default function KdiView({
   const [newDeadline, setNewDeadline] = useState("");
   const [addForm, setAddForm] = useState({
     label: "",
-    freq: "daily" as "daily" | "weekly",
+    freq: "daily" as "daily" | "weekly" | "once",
     target_per_month: 4,
     threshold: 90,
     deadline: "",
   });
 
-  // Group KDIs by chart (via task -> sub_goal -> chart)
-  // For simplicity, show all KDIs in a flat list with task info
   const grouped = useMemo(() => {
-    // Just show flat list for now, grouped by freq
     return {
       daily: kdis.filter((k) => k.freq === "daily"),
       weekly: kdis.filter((k) => k.freq === "weekly"),
+      once: kdis.filter((k) => k.freq === "once"),
     };
   }, [kdis]);
 
@@ -94,6 +92,28 @@ export default function KdiView({
         </section>
       )}
 
+      {/* Once (achievement-type) */}
+      {grouped.once.length > 0 && (
+        <section>
+          <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+            達成型（{grouped.once.length}）
+          </h3>
+          <div className="space-y-2">
+            {grouped.once.map((kdi) => (
+              <KdiCard
+                key={kdi.id}
+                kdi={kdi}
+                onDelete={() => onDeleteKdi(kdi.id)}
+                onReschedule={() => {
+                  setRescheduleTarget(kdi);
+                  setNewDeadline(kdi.deadline ?? "");
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {kdis.length === 0 && (
         <p className="py-8 text-center text-sm text-muted-foreground">
           KDIがありません。チャートのタスクからKDIを設定するか、手動で追加してください。
@@ -122,7 +142,7 @@ export default function KdiView({
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">頻度</label>
             <div className="flex gap-2">
-              {(["daily", "weekly"] as const).map((f) => (
+              {(["daily", "weekly", "once"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setAddForm((form) => ({ ...form, freq: f }))}
@@ -132,7 +152,7 @@ export default function KdiView({
                       : "bg-card"
                   }`}
                 >
-                  {f === "daily" ? "デイリー" : "ウィークリー"}
+                  {f === "daily" ? "デイリー" : f === "weekly" ? "ウィークリー" : "達成型"}
                 </button>
               ))}
             </div>
@@ -155,22 +175,24 @@ export default function KdiView({
               />
             </div>
           )}
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">
-              達成閾値（%）
-            </label>
-            <input
-              type="number"
-              value={addForm.threshold}
-              onChange={(e) =>
-                setAddForm((f) => ({
-                  ...f,
-                  threshold: parseInt(e.target.value) || 90,
-                }))
-              }
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-            />
-          </div>
+          {addForm.freq !== "once" && (
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">
+                達成閾値（%）
+              </label>
+              <input
+                type="number"
+                value={addForm.threshold}
+                onChange={(e) =>
+                  setAddForm((f) => ({
+                    ...f,
+                    threshold: parseInt(e.target.value) || 90,
+                  }))
+                }
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">期日</label>
             <input
@@ -191,7 +213,7 @@ export default function KdiView({
                 freq: addForm.freq,
                 target_per_month:
                   addForm.freq === "weekly" ? addForm.target_per_month : null,
-                threshold: addForm.threshold,
+                threshold: addForm.freq === "once" ? 100 : addForm.threshold,
                 deadline: addForm.deadline || null,
               });
               setAddForm({
@@ -265,6 +287,17 @@ function KdiCard({
       <div className="flex-1 min-w-0">
         <p className="text-sm truncate">{kdi.label}</p>
         <div className="flex items-center gap-2 mt-0.5">
+          <span
+            className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+              kdi.freq === "daily"
+                ? "bg-blue-100 text-blue-700"
+                : kdi.freq === "weekly"
+                ? "bg-purple-100 text-purple-700"
+                : "bg-amber-100 text-amber-700"
+            }`}
+          >
+            {kdi.freq === "daily" ? "デイリー" : kdi.freq === "weekly" ? "ウィークリー" : "達成型"}
+          </span>
           {kdi.deadline && (
             <span className="text-[10px] text-muted-foreground">
               〜{kdi.deadline}
