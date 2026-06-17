@@ -167,19 +167,29 @@ export default function Home() {
   return (
     <div
       className="mx-auto flex min-h-dvh max-w-[640px] flex-col"
-      style={{ background: "#faf8f3", color: "#2c2c2c" }}
+      style={{ background: "#f1f7f1", color: "#2c3a2e" }}
     >
       {/* Header */}
       <header
-        className="sticky top-0 z-20 px-4 py-3"
+        className="sticky top-0 z-20 flex items-center gap-2.5 px-4 py-3"
         style={{
-          background: "#faf8f3",
-          borderBottom: "1px solid #c9b99a",
+          background: "#ffffff",
+          borderBottom: "1px solid #d3e3d2",
+          boxShadow: "0 1px 3px rgba(46,158,79,0.08)",
         }}
       >
+        <span
+          aria-hidden
+          className="flex h-8 w-8 items-center justify-center rounded-xl"
+          style={{ background: "linear-gradient(135deg,#3aaf5b,#2e9e4f)", boxShadow: "0 2px 6px rgba(46,158,79,0.3)" }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" />
+          </svg>
+        </span>
         <h1
           className="text-base"
-          style={{ fontFamily: "'Noto Serif JP', serif", fontWeight: 700, color: "#2c2c2c" }}
+          style={{ fontFamily: "'Zen Maru Gothic', sans-serif", fontWeight: 700, color: "#1f6d39" }}
         >
           Mandala KDI
         </h1>
@@ -251,20 +261,24 @@ export default function Home() {
       {/* Tab bar */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-20"
-        style={{ background: "#2c2c2c" }}
+        style={{
+          background: "linear-gradient(180deg,#34a857,#2e9e4f)",
+          boxShadow: "0 -2px 10px rgba(46,158,79,0.25)",
+        }}
       >
-        <div className="mx-auto flex max-w-[640px]">
+        <div className="mx-auto flex max-w-[640px] px-1.5 py-1.5">
           {TABS.map((t) => {
             const active = tab === t.key;
             return (
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
-                className="relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] transition"
+                className="relative flex flex-1 flex-col items-center gap-0.5 rounded-xl py-2 text-[10px] transition"
                 style={{
-                  fontFamily: "'Noto Serif JP', serif",
-                  color: active ? "#d4a853" : "#c9b99a",
-                  fontWeight: active ? 600 : 400,
+                  fontFamily: "'Zen Maru Gothic', sans-serif",
+                  color: "#ffffff",
+                  fontWeight: active ? 700 : 500,
+                  background: active ? "rgba(255,255,255,0.22)" : "transparent",
                 }}
               >
                 <svg
@@ -273,26 +287,14 @@ export default function Home() {
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="1.5"
+                  strokeWidth={active ? 2 : 1.5}
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  style={{ opacity: active ? 1 : 0.8 }}
                 >
                   <path d={t.icon} />
                 </svg>
-                <span>{t.label}</span>
-                {active && (
-                  <span
-                    aria-hidden
-                    style={{
-                      position: "absolute",
-                      bottom: 0,
-                      left: "25%",
-                      right: "25%",
-                      height: 2,
-                      background: "#d4a853",
-                    }}
-                  />
-                )}
+                <span style={{ opacity: active ? 1 : 0.85 }}>{t.label}</span>
               </button>
             );
           })}

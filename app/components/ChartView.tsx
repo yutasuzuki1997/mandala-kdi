@@ -48,21 +48,21 @@ interface CellData {
 }
 
 const FONT_SANS = "'Noto Sans JP', sans-serif";
-const FONT_SERIF = "'Noto Serif JP', serif";
+const FONT_SERIF = "'Zen Maru Gothic', sans-serif";
 const FONT = FONT_SANS;
 
-/* Notebook palette */
+/* Bank-style green palette */
 const C_PAPER = "#ffffff";
-const C_PAPER_DEEP = "#f0ebe0";
-const C_INK = "#2c2c2c";
-const C_INK_SOFT = "#5c4a2a";
-const C_BROWN = "#8b7355";
-const C_BROWN_SOFT = "#c9b99a";
-const C_BG = "#faf8f3";
-const C_GOLD = "#d4a853";
-const C_SUCCESS_BG = "#f0f7ee";
-const C_DANGER_BG = "#fdf0f0";
-const C_WARN_BG = "#fdf8ee";
+const C_PAPER_DEEP = "#e6f1e6";
+const C_INK = "#2c3a2e";
+const C_INK_SOFT = "#1f6d39";
+const C_BROWN = "#2e9e4f";
+const C_BROWN_SOFT = "#bcd9bd";
+const C_BG = "#f1f7f1";
+const C_GOLD = "#f3982d";
+const C_SUCCESS_BG = "#e9f6ec";
+const C_DANGER_BG = "#fdecec";
+const C_WARN_BG = "#fff4e2";
 
 /* ================================================================
    FitText
@@ -451,7 +451,7 @@ function MandalaGrid({
         gridTemplateRows: "repeat(9, 1fr)",
         border: `2px solid ${C_BROWN}`,
         background: C_BG,
-        aspectRatio: "27 / 18",  /* 9 cols × 3 : 9 rows × 2 = 3:2 per cell */
+        aspectRatio: "1 / 1",  /* perfect square chart */
         width: "100%",
         maxWidth: "100%",
         overflow: "hidden",

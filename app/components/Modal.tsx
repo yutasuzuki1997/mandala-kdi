@@ -37,27 +37,27 @@ export default function Modal({ open, onClose, title, children, size = "default"
       }}
     >
       <div
-        className={`${sizeClass} rounded-t-sm sm:rounded-sm p-5 shadow-xl animate-in slide-in-from-bottom-4 duration-200`}
+        className={`${sizeClass} rounded-t-2xl sm:rounded-2xl p-5 shadow-xl animate-in slide-in-from-bottom-4 duration-200`}
         style={{
-          background: "#faf8f3",
-          border: "1px solid #c9b99a",
-          color: "#2c2c2c",
+          background: "#ffffff",
+          border: "1px solid #d3e3d2",
+          color: "#2c3a2e",
         }}
       >
         <div
           className="mb-4 flex items-center justify-between pb-2"
-          style={{ borderBottom: "1px solid #c9b99a" }}
+          style={{ borderBottom: "1px solid #d3e3d2" }}
         >
           <h3
             className="text-base"
-            style={{ fontFamily: "'Noto Serif JP', serif", fontWeight: 600, color: "#2c2c2c" }}
+            style={{ fontFamily: "'Zen Maru Gothic', sans-serif", fontWeight: 600, color: "#2c3a2e" }}
           >
             {title}
           </h3>
           <button
             onClick={onClose}
-            className="rounded-sm p-1 hover:bg-[#f0ebe0]"
-            style={{ color: "#8b7355" }}
+            className="rounded-lg p-1 hover:bg-[#eef4ee]"
+            style={{ color: "#2e9e4f" }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />

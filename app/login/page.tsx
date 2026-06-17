@@ -4,14 +4,15 @@ import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-const C_PAPER = "#faf8f3";
-const C_INK = "#2c2c2c";
-const C_INK_SOFT = "#5c4a2a";
-const C_BROWN = "#8b7355";
-const C_BROWN_SOFT = "#c9b99a";
-const C_PAPER_DEEP = "#f0ebe0";
-const C_GOLD = "#d4a853";
-const FONT_SERIF = "'Noto Serif JP', serif";
+const C_BG = "#f1f7f1";
+const C_PAPER = "#ffffff";
+const C_INK = "#2c3a2e";
+const C_INK_SOFT = "#1f6d39";
+const C_BROWN = "#2e9e4f";
+const C_BROWN_SOFT = "#d3e3d2";
+const C_PAPER_DEEP = "#e6f1e6";
+const C_GOLD = "#f3982d";
+const FONT_SERIF = "'Zen Maru Gothic', sans-serif";
 const FONT_SANS = "'Noto Sans JP', sans-serif";
 
 function LoginForm() {
@@ -64,41 +65,53 @@ function LoginForm() {
   return (
     <div
       className="min-h-dvh flex items-center justify-center px-4 py-10"
-      style={{ background: C_PAPER, color: C_INK, fontFamily: FONT_SANS }}
+      style={{ background: C_BG, color: C_INK, fontFamily: FONT_SANS }}
     >
       <div
         className="w-full max-w-md p-8"
         style={{
           background: C_PAPER,
           border: `1px solid ${C_BROWN_SOFT}`,
-          borderRadius: 4,
+          borderRadius: 20,
+          boxShadow: "0 8px 24px rgba(46,158,79,0.10)",
         }}
       >
-        <div className="mb-6" style={{ borderBottom: `1px solid ${C_BROWN_SOFT}` }}>
+        <div className="mb-6 flex items-center gap-2.5 pb-3" style={{ borderBottom: `1px solid ${C_BROWN_SOFT}` }}>
+          <span
+            aria-hidden
+            className="flex h-9 w-9 items-center justify-center"
+            style={{ background: "linear-gradient(135deg,#3aaf5b,#2e9e4f)", borderRadius: 12, boxShadow: "0 2px 6px rgba(46,158,79,0.3)" }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" />
+            </svg>
+          </span>
+          <div>
           <h1
-            className="pb-2 text-2xl"
-            style={{ fontFamily: FONT_SERIF, fontWeight: 700, color: C_INK, letterSpacing: "0.03em" }}
+            className="text-2xl"
+            style={{ fontFamily: FONT_SERIF, fontWeight: 700, color: C_INK_SOFT, letterSpacing: "0.03em" }}
           >
             Mandala KDI
           </h1>
           <p
-            className="pb-3 text-xs"
-            style={{ color: C_INK_SOFT, fontFamily: FONT_SERIF, letterSpacing: "0.05em" }}
+            className="text-xs"
+            style={{ color: C_BROWN, fontFamily: FONT_SERIF, letterSpacing: "0.05em" }}
           >
-            ― sign in to your notebook ―
+            マンダラチャート × KDI管理
           </p>
+          </div>
         </div>
 
         <button
           type="button"
           disabled={loading}
           onClick={handleGoogle}
-          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 text-sm transition disabled:opacity-60 hover:bg-[#f5f0e3]"
+          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 text-sm transition disabled:opacity-60 hover:bg-[#eef4ee]"
           style={{
             background: C_PAPER,
             color: C_INK,
             border: `1px solid ${C_BROWN}`,
-            borderRadius: 4,
+            borderRadius: 12,
             fontFamily: FONT_SERIF,
             fontWeight: 500,
           }}
@@ -151,13 +164,14 @@ function LoginForm() {
             disabled={loading || !email.trim()}
             className="w-full px-4 py-2.5 text-sm transition disabled:opacity-60 hover:opacity-90"
             style={{
-              background: C_INK,
-              color: C_PAPER,
-              border: `1px solid ${C_INK}`,
-              borderRadius: 4,
+              background: "linear-gradient(135deg,#3aaf5b,#2e9e4f)",
+              color: "#ffffff",
+              border: `1px solid ${C_BROWN}`,
+              borderRadius: 12,
               fontFamily: FONT_SERIF,
-              fontWeight: 500,
+              fontWeight: 600,
               letterSpacing: "0.05em",
+              boxShadow: "0 2px 8px rgba(46,158,79,0.3)",
             }}
           >
             {loading ? "送信中…" : "マジックリンクを送る"}
@@ -181,9 +195,9 @@ function LoginForm() {
           <div
             className="mt-5 px-3 py-2 text-xs"
             style={{
-              background: "#fdf0f0",
-              color: "#b84444",
-              borderLeft: `3px solid #b84444`,
+              background: "#fdecec",
+              color: "#d14343",
+              borderLeft: `3px solid #d14343`,
               fontFamily: FONT_SANS,
             }}
           >
@@ -195,7 +209,7 @@ function LoginForm() {
           className="mt-8 text-center text-[10px]"
           style={{ color: C_BROWN, fontFamily: FONT_SERIF, letterSpacing: "0.1em" }}
         >
-          ― turn the page, begin your mandala ―
+― さあ、あなたの目標を成し遂げよう ―
         </p>
       </div>
     </div>

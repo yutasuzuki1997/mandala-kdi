@@ -1,6 +1,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,7 +10,7 @@
     text-wrap: balance;
   }
   .font-serif-jp {
-    font-family: 'Noto Serif JP', serif;
+    font-family: 'Zen Maru Gothic', sans-serif;
   }
   .font-sans-jp {
     font-family: 'Noto Sans JP', sans-serif;
@@ -19,47 +19,47 @@
 
 @layer base {
   .theme {
-    --font-heading: 'Noto Serif JP', serif;
+    --font-heading: 'Zen Maru Gothic', sans-serif;
     --font-sans: 'Noto Sans JP', sans-serif;
   }
   :root {
-    /* Notebook / Journal theme */
-    --background: #faf8f3;
-    --foreground: #2c2c2c;
-    --card: #faf8f3;
-    --card-foreground: #2c2c2c;
-    --popover: #faf8f3;
-    --popover-foreground: #2c2c2c;
-    --primary: #2c2c2c;
-    --primary-foreground: #faf8f3;
-    --secondary: #f0ebe0;
-    --secondary-foreground: #5c4a2a;
-    --muted: #f0ebe0;
-    --muted-foreground: #8b7355;
-    --accent: #d4a853;
-    --accent-foreground: #2c2c2c;
-    --destructive: #b84444;
-    --border: #c9b99a;
-    --input: #c9b99a;
-    --ring: #8b7355;
-    --chart-1: #8b7355;
-    --chart-2: #d4a853;
-    --chart-3: #5c4a2a;
-    --chart-4: #c9b99a;
-    --chart-5: #2c2c2c;
-    --radius: 0.25rem;
+    /* Bank-style fresh green theme (ref: 岩手銀行) */
+    --background: #f1f7f1;
+    --foreground: #2c3a2e;
+    --card: #ffffff;
+    --card-foreground: #2c3a2e;
+    --popover: #ffffff;
+    --popover-foreground: #2c3a2e;
+    --primary: #2e9e4f;
+    --primary-foreground: #ffffff;
+    --secondary: #e6f1e6;
+    --secondary-foreground: #1f6d39;
+    --muted: #eef4ee;
+    --muted-foreground: #6b7d6e;
+    --accent: #f3982d;
+    --accent-foreground: #ffffff;
+    --destructive: #d14343;
+    --border: #d3e3d2;
+    --input: #d3e3d2;
+    --ring: #2e9e4f;
+    --chart-1: #2e9e4f;
+    --chart-2: #f3982d;
+    --chart-3: #1f6d39;
+    --chart-4: #8cc79c;
+    --chart-5: #2c3a2e;
+    --radius: 0.75rem;
 
-    /* Semantic notebook colors */
-    --ink: #2c2c2c;
-    --paper: #faf8f3;
-    --paper-deep: #f0ebe0;
-    --brown: #8b7355;
-    --brown-soft: #c9b99a;
-    --gold: #d4a853;
-    --ink-soft: #5c4a2a;
-    --success-bg: #f0f7ee;
-    --danger-bg: #fdf0f0;
-    --warn-bg: #fdf8ee;
+    /* Semantic colors */
+    --ink: #2c3a2e;
+    --paper: #f1f7f1;
+    --paper-deep: #e6f1e6;
+    --brown: #2e9e4f;
+    --brown-soft: #bcd9bd;
+    --gold: #f3982d;
+    --ink-soft: #1f6d39;
+    --success-bg: #e9f6ec;
+    --danger-bg: #fdecec;
+    --warn-bg: #fff4e2;
   }
   * {
     @apply border-border;
@@ -74,6 +74,6 @@
     font-family: 'Noto Sans JP', sans-serif;
   }
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Noto Serif JP', serif;
+    font-family: 'Zen Maru Gothic', sans-serif;
   }
 }
