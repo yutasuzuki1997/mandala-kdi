@@ -135,7 +135,7 @@ export default function TimelineView({
                     <p className={`text-sm truncate ${item.status === "done" ? "line-through text-muted-foreground" : ""}`}>
                       {item.label}
                     </p>
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[11px] text-muted-foreground">
                       {item.deadline} ・{item.kind === "task" ? "タスク" : "KDI"}
                     </p>
                   </div>

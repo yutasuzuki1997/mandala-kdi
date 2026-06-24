@@ -136,10 +136,10 @@ function FitText({
         ref={spanRef}
         style={{
           fontSize,
-          lineHeight: 1.3,
+          lineHeight: 1.25,
           textAlign: "center",
-          wordBreak: "keep-all",
-          overflowWrap: "break-word",
+          wordBreak: "normal",
+          overflowWrap: "anywhere",
           whiteSpace: "pre-wrap",
           fontFamily: isTheme || isSgCenter ? FONT_SERIF : FONT_SANS,
           color: isTheme ? C_BG : "inherit",
@@ -447,8 +447,8 @@ function MandalaGrid({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(9, 1fr)",
-        gridTemplateRows: "repeat(9, 1fr)",
+        gridTemplateColumns: "repeat(9, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(9, minmax(0, 1fr))",
         border: `2px solid ${C_BROWN}`,
         background: C_BG,
         aspectRatio: "1 / 1",  /* perfect square chart */
@@ -566,14 +566,15 @@ function parseGrid(text: string, rows: number, cols: number): string[][] | null 
 
 /* ================================================================
    Detail parser (1 row = 1 task / KDI line, tab-separated)
-   Columns: KPI | サブKPI | タイプ | 期日 | KDI | 頻度 | 月目標 | 閾値 | KDI期日
+   Columns: KPI | サブKPI | タイプ | 期日 | KDI | 頻度 | 月目標 | 閾値 | KDI期日 | KDI開始日(任意)
    ================================================================ */
 
 type DetailKdi = {
   label: string;
-  freq: "daily" | "weekly" | "once";
+  freq: "daily" | "weekly" | "monthly" | "once";
   target_per_month: number | null;
   threshold: number;
+  start_date: string | null;
   deadline: string | null;
 };
 type DetailTask = {
@@ -589,11 +590,13 @@ function normType(s: string): "achieve" | "habit" {
   const v = s.trim().toLowerCase();
   return v === "habit" || v === "習慣" ? "habit" : "achieve";
 }
-function normFreq(s: string): "daily" | "weekly" | "once" {
+function normFreq(s: string): "daily" | "weekly" | "monthly" | "once" {
   const v = s.trim().toLowerCase();
   if (v === "weekly" || v === "毎週" || v === "週") return "weekly";
-  if (v === "once" || v === "一回" || v === "一度" || v === "1回") return "once";
-  return "daily";
+  if (v === "monthly" || v === "毎月" || v === "月次" || v === "月") return "monthly";
+  if (v === "daily" || v === "毎日" || v === "日") return "daily";
+  // Empty / unspecified frequency = one-time achievement (once).
+  return "once";
 }
 function normNum(s: string): number | null {
   const v = s.replace(/[^0-9.]/g, "");
@@ -630,6 +633,7 @@ function parseDetail(
     const targetS = cells[6] ?? "";
     const thresholdS = cells[7] ?? "";
     const kdiDeadline = cells[8] ?? "";
+    const kdiStart = cells[9] ?? "";
 
     let kpi: DetailKpi | undefined;
     if (kpiLabel) {
@@ -646,13 +650,20 @@ function parseDetail(
 
     let task: DetailTask | undefined;
     if (taskLabel) {
-      task = {
-        label: taskLabel,
-        type: normType(typeS),
-        deadline: taskDeadline.trim() || null,
-        kdis: [],
-      };
-      kpi.tasks.push(task);
+      // Same サブKPI repeated on consecutive rows = additional KDIs for the
+      // same task (spreadsheet-style export), not a new task.
+      const last = kpi.tasks[kpi.tasks.length - 1];
+      if (last && last.label === taskLabel) {
+        task = last;
+      } else {
+        task = {
+          label: taskLabel,
+          type: normType(typeS),
+          deadline: taskDeadline.trim() || null,
+          kdis: [],
+        };
+        kpi.tasks.push(task);
+      }
     } else {
       task = kpi.tasks[kpi.tasks.length - 1];
     }
@@ -664,8 +675,10 @@ function parseDetail(
       task.kdis.push({
         label: kdiLabel,
         freq,
-        target_per_month: freq === "weekly" ? normNum(targetS) ?? 4 : null,
+        target_per_month:
+          freq === "weekly" || freq === "monthly" ? normNum(targetS) ?? 4 : null,
         threshold: freq === "once" ? 100 : normNum(thresholdS) ?? 90,
+        start_date: kdiStart.trim() || null,
         deadline: kdiDeadline.trim() || null,
       });
     }
@@ -689,7 +702,7 @@ function parseDetail(
 
 const TEMPLATE_TSV = [
   "KGI\t中心目標をここに",
-  "KPI\tサブKPI\tタイプ\t期日\tKDI\t頻度\t月目標\t閾値\tKDI期日",
+  "KPI\tサブKPI\tタイプ\t期日\tKDI\t頻度\t月目標\t閾値\tKDI期日\tKDI開始日",
   "体力作り\t毎朝走る\thabit\t\t5km走る\tdaily\t\t90\t",
   "体力作り\t筋トレ\thabit\t2026-09-01\t腕立て30回\tweekly\t12\t80\t2026-08-31",
   "資格取得\t過去問演習\tachieve\t2026-09-01\t\t\t\t\t",
@@ -718,7 +731,7 @@ const PROMPTS: { title: string; desc: string; body: string }[] = [
 - KGI: 中心に置く最終目標（1つ）
 - KPI: KGI達成に必要な要素（最大8つ）
 - サブKPI: 各KPIを達成するための具体的な行動・課題（各KPIにつき最大8つ）。「達成型(achieve＝一度やれば完了)」か「習慣型(habit＝継続)」のどちらか。任意で期日を持てる。
-- KDI: 各サブKPIの達成度を測る指標（1サブKPIに複数可）。頻度は daily / weekly / once。週次は「月の目標回数」、達成基準の「閾値(%)」、任意で独自の「期日」を持てる。
+- KDI: 各サブKPIの達成度を測る指標（1サブKPIに複数可）。頻度は daily / weekly / monthly / once。週次・月次は「月の目標回数」、達成基準の「閾値(%)」、任意で「開始日」「期日」を持てる。
 
 【進め方】
 1. まず私のKGI（中心目標）をヒアリングして言語化する
@@ -736,17 +749,17 @@ const PROMPTS: { title: string; desc: string; body: string }[] = [
 
 【ルール】
 - 1行目は「KGI<TAB>中心目標の文言」（<TAB>は半角タブ文字）
-- 2行目はヘッダ: KPI<TAB>サブKPI<TAB>タイプ<TAB>期日<TAB>KDI<TAB>頻度<TAB>月目標<TAB>閾値<TAB>KDI期日
+- 2行目はヘッダ: KPI<TAB>サブKPI<TAB>タイプ<TAB>期日<TAB>KDI<TAB>頻度<TAB>月目標<TAB>閾値<TAB>KDI期日<TAB>KDI開始日
 - 3行目以降が「1行＝1サブKPI」
 - 列の区切りはすべて半角タブ文字。値が無い列は空欄（タブは省略せず詰めない）
 - タイプ: achieve（達成型）/ habit（習慣型）
-- 頻度: daily / weekly / once。月目標は weekly のときだけ数値、閾値は % の数値（once は空でよい）、期日は YYYY-MM-DD
+- 頻度: daily / weekly / monthly / once。月目標は weekly・monthly のとき数値、閾値は % の数値（once は空でよい）、期日・開始日は YYYY-MM-DD（開始日は任意・最終列）
 - 1つのサブKPIに複数KDIがある場合、2件目以降はKPI列とサブKPI列を空欄にして次の行に書く（直前のサブKPIに紐づく）
 - KPIは最大8、各KPIのサブKPIは最大8
 
 【出力例（タブ区切り）】
 KGI	中心目標
-KPI	サブKPI	タイプ	期日	KDI	頻度	月目標	閾値	KDI期日
+KPI	サブKPI	タイプ	期日	KDI	頻度	月目標	閾値	KDI期日	KDI開始日
 体力作り	毎朝走る	habit		5km走る	daily		90
 			ストレッチ	daily		80
 資格取得	過去問演習	achieve	2026-09-01				`,
@@ -795,9 +808,10 @@ export default function ChartView({
   const [showKdiForm, setShowKdiForm] = useState(false);
   const [kdiForm, setKdiForm] = useState({
     label: "",
-    freq: "daily" as "daily" | "weekly" | "once",
+    freq: "daily" as "daily" | "weekly" | "monthly" | "once",
     target_per_month: 4,
     threshold: 90,
+    start_date: "",
     deadline: "",
   });
 
@@ -809,6 +823,7 @@ export default function ChartView({
     "block"
   );
   const [importText, setImportText] = useState("");
+  const [importFileName, setImportFileName] = useState("");
   const [importSgIdx, setImportSgIdx] = useState(0);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -876,6 +891,7 @@ export default function ChartView({
       freq: "daily",
       target_per_month: 4,
       threshold: 90,
+      start_date: "",
       deadline,
     });
   }
@@ -919,9 +935,12 @@ export default function ChartView({
       label: kdiForm.label || taskForm.label,
       freq: kdiForm.freq,
       target_per_month:
-        kdiForm.freq === "weekly" ? kdiForm.target_per_month : null,
+        kdiForm.freq === "weekly" || kdiForm.freq === "monthly"
+          ? kdiForm.target_per_month
+          : null,
       // Achievement-type is binary: threshold is conceptually "achieved once".
       threshold: kdiForm.freq === "once" ? 100 : kdiForm.threshold,
+      start_date: kdiForm.start_date || null,
       deadline: kdiForm.deadline || null,
     });
     setShowKdiForm(false);
@@ -934,6 +953,25 @@ export default function ChartView({
   }, [selectedChartId, onDeleteChart]);
 
   /* ------ Import ------ */
+  const handleFileSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = ""; // allow re-selecting the same file
+      if (!file) return;
+      setImportError(null);
+      try {
+        const text = await file.text();
+        setImportText(text);
+        setImportFileName(file.name);
+      } catch {
+        setImportError("ファイルの読み込みに失敗しました");
+        setImportText("");
+        setImportFileName("");
+      }
+    },
+    []
+  );
+
   const handleImport = useCallback(async () => {
     if (!fullChart) return;
     setImportError(null);
@@ -955,25 +993,46 @@ export default function ChartView({
         const uid = await getUserId();
         if (theme) await db.updateChartTheme(fullChart.id, theme);
 
-        // Sequential: tasks must be upserted first so KDIs can reference ids.
-        for (let ki = 0; ki < kpis.length; ki++) {
-          const kpi = kpis[ki];
-          const sg = sgs[ki];
-          if (!sg) continue;
-          await db.updateSubGoal(sg.id, kpi.label);
-          for (let ti = 0; ti < kpi.tasks.length; ti++) {
-            const t = kpi.tasks[ti];
-            const existing = sg.tasks?.find((x) => x.position === ti);
-            const row = await db.upsertTask({
-              ...(existing ? { id: existing.id } : {}),
-              sub_goal_id: sg.id,
-              position: ti,
-              label: t.label,
-              type: t.type,
-              deadline: t.deadline,
-            });
-            const taskId = (row as { id: string }).id;
+        // Non-destructive: match existing sub_goals/tasks by label and only fill
+        // empty slots for genuinely new KPIs/tasks. Existing labels/deadlines are
+        // never overwritten — this path only ADDS (or updates) KDIs.
+        const sgWork = sgs.map((sg) => ({
+          sg,
+          tasks: [...(sg.tasks ?? [])].sort((a, b) => a.position - b.position),
+        }));
+
+        for (const kpi of kpis) {
+          // Resolve the sub-goal by label; claim an empty slot for a new KPI.
+          let entry = sgWork.find((e) => e.sg.label === kpi.label);
+          if (!entry) {
+            const empty = sgWork.find((e) => !e.sg.label);
+            if (!empty) continue; // no room for another KPI
+            await db.updateSubGoal(empty.sg.id, kpi.label);
+            empty.sg.label = kpi.label;
+            entry = empty;
+          }
+          const sg = entry.sg;
+
+          for (const t of kpi.tasks) {
+            // Resolve the task by label; create a new one only in an empty slot.
+            let task = entry.tasks.find((x) => t.label && x.label === t.label);
+            if (!task) {
+              const emptyRow = entry.tasks.find((x) => !x.label);
+              if (!emptyRow) continue; // grid full, no room for a new task
+              const row = await db.upsertTask({
+                id: emptyRow.id,
+                sub_goal_id: sg.id,
+                position: emptyRow.position,
+                label: t.label,
+                type: t.type,
+                deadline: t.deadline,
+              });
+              emptyRow.label = t.label; // mark slot as claimed
+              task = row as typeof emptyRow;
+            }
+            const taskId = (task as { id: string }).id;
             for (const k of t.kdis) {
+              if (!k.label) continue;
               const existingKdi = kdis.find(
                 (x) => x.task_id === taskId && x.label === k.label
               );
@@ -985,6 +1044,7 @@ export default function ChartView({
                 freq: k.freq,
                 target_per_month: k.target_per_month,
                 threshold: k.threshold,
+                start_date: k.start_date,
                 deadline: k.deadline,
               });
             }
@@ -1075,6 +1135,7 @@ export default function ChartView({
       setToast("インポート完了");
       setShowImport(false);
       setImportText("");
+      setImportFileName("");
       setTimeout(() => setToast(null), 2500);
     } catch (e: unknown) {
       setImportError(
@@ -1121,6 +1182,7 @@ export default function ChartView({
             onClick={() => {
               setImportError(null);
               setImportText("");
+              setImportFileName("");
               setShowImport(true);
             }}
             className="text-sm hover:underline"
@@ -1340,23 +1402,25 @@ export default function ChartView({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm truncate">{kdi.label}</p>
                           <div className="mt-1 flex items-center gap-1.5">
-                            <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                            <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
                               kdi.freq === "daily"
                                 ? "bg-blue-100 text-blue-700"
                                 : kdi.freq === "weekly"
                                 ? "bg-purple-100 text-purple-700"
+                                : kdi.freq === "monthly"
+                                ? "bg-emerald-100 text-emerald-700"
                                 : "bg-amber-100 text-amber-700"
                             }`}>
-                              {kdi.freq === "daily" ? "デイリー" : kdi.freq === "weekly" ? "ウィークリー" : "達成型"}
+                              {kdi.freq === "daily" ? "デイリー" : kdi.freq === "weekly" ? "ウィークリー" : kdi.freq === "monthly" ? "マンスリー" : "達成型"}
                             </span>
                             {kdi.freq === "once" ? (
-                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
                                 rate >= 100 ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
                               }`}>
                                 {rate >= 100 ? "達成済み" : "未達"}
                               </span>
                             ) : (
-                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
                                 rate >= 80 ? "bg-green-100 text-green-700" : rate >= 50 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"
                               }`}>
                                 実行率 {rate}%
@@ -1414,16 +1478,16 @@ export default function ChartView({
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium text-muted-foreground">頻度</label>
-              <div className="flex gap-2">
-                {(["daily", "weekly", "once"] as const).map((f) => (
+              <div className="grid grid-cols-2 gap-2">
+                {(["daily", "weekly", "monthly", "once"] as const).map((f) => (
                   <button key={f} onClick={() => setKdiForm((fm) => ({ ...fm, freq: f }))}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition ${kdiForm.freq === f ? "border-primary bg-primary/10 font-medium" : "bg-card"}`}>
-                    {f === "daily" ? "デイリー" : f === "weekly" ? "ウィークリー" : "達成型"}
+                    className={`rounded-lg border px-3 py-2 text-sm transition ${kdiForm.freq === f ? "border-primary bg-primary/10 font-medium" : "bg-card"}`}>
+                    {f === "daily" ? "デイリー" : f === "weekly" ? "ウィークリー" : f === "monthly" ? "マンスリー" : "達成型"}
                   </button>
                 ))}
               </div>
             </div>
-            {kdiForm.freq === "weekly" && (
+            {(kdiForm.freq === "weekly" || kdiForm.freq === "monthly") && (
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">月間目標回数</label>
                 <input type="number" value={kdiForm.target_per_month}
@@ -1439,11 +1503,19 @@ export default function ChartView({
                   className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm" />
               </div>
             )}
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">期日</label>
-              <input type="date" value={kdiForm.deadline}
-                onChange={(e) => setKdiForm((f) => ({ ...f, deadline: e.target.value }))}
-                className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm" />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">開始日</label>
+                <input type="date" value={kdiForm.start_date}
+                  onChange={(e) => setKdiForm((f) => ({ ...f, start_date: e.target.value }))}
+                  className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">期日</label>
+                <input type="date" value={kdiForm.deadline}
+                  onChange={(e) => setKdiForm((f) => ({ ...f, deadline: e.target.value }))}
+                  className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm" />
+              </div>
             </div>
             <Button className="w-full" disabled={!kdiForm.label.trim()} onClick={saveKdi}>KDIを保存</Button>
           </div>
@@ -1489,6 +1561,8 @@ export default function ChartView({
                 onClick={() => {
                   setImportMode(m);
                   setImportError(null);
+                  setImportText("");
+                  setImportFileName("");
                 }}
                 className="flex-1 px-3 py-2 text-sm transition"
                 style={{
@@ -1571,38 +1645,65 @@ export default function ChartView({
             </div>
           )}
 
-          {/* Textarea */}
-          <div>
-            <label
-              className="mb-1.5 block text-xs"
-              style={{ color: C_INK_SOFT, fontFamily: FONT_SERIF, fontWeight: 500 }}
-            >
-              {importMode === "block"
-                ? "3×3（9セル）タブ区切り"
-                : importMode === "full"
-                ? "9×9（81セル）タブ区切り"
-                : "1行=1サブKPI のタブ区切り表（ヘッダ付き）"}
-            </label>
-            <textarea
-              rows={10}
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder={
-                importMode === "block"
-                  ? "タスク1\tタスク2\tタスク3\nタスク4\tサブ目標\tタスク5\nタスク6\tタスク7\tタスク8"
-                  : importMode === "full"
-                  ? "9行×9列のデータをスプレッドシートからコピーして貼り付け"
-                  : "KGI\t中心目標\nKPI\tサブKPI\tタイプ\t期日\tKDI\t頻度\t月目標\t閾値\tKDI期日\n体力作り\t毎朝走る\thabit\t\t5km走る\tdaily\t\t90\t\n体力作り\t筋トレ\thabit\t2026-09-01\t腕立て30回\tweekly\t12\t80\t2026-08-31\n資格取得\t過去問演習\tachieve\t2026-09-01\t\t\t\t\t"
-              }
-              className="w-full resize-none rounded-sm border px-3 py-2 text-xs font-mono focus:outline-none"
-              style={{
-                borderColor: C_BROWN_SOFT,
-                background: C_BG,
-                color: C_INK,
-                fontFamily: "'Courier New', monospace",
-              }}
-            />
-          </div>
+          {/* Input: file upload (detail) or paste textarea (block/full) */}
+          {importMode === "detail" ? (
+            <div>
+              <label
+                className="mb-1.5 block text-xs"
+                style={{ color: C_INK_SOFT, fontFamily: FONT_SERIF, fontWeight: 500 }}
+              >
+                TSVファイルをアップロード（ヘッダ付き・1行=1KDI）
+              </label>
+              <label
+                className="flex cursor-pointer items-center justify-center gap-2 rounded-sm border px-3 py-6 text-xs transition hover:opacity-80"
+                style={{
+                  borderColor: C_BROWN_SOFT,
+                  borderStyle: "dashed",
+                  background: C_BG,
+                  color: importFileName ? C_INK : C_INK_SOFT,
+                  fontFamily: FONT_SERIF,
+                }}
+              >
+                {importFileName
+                  ? `📄 ${importFileName}（クリックで選び直す）`
+                  : "⬆ クリックして .tsv ファイルを選択"}
+                <input
+                  type="file"
+                  accept=".tsv,.csv,.txt,text/tab-separated-values,text/csv,text/plain"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          ) : (
+            <div>
+              <label
+                className="mb-1.5 block text-xs"
+                style={{ color: C_INK_SOFT, fontFamily: FONT_SERIF, fontWeight: 500 }}
+              >
+                {importMode === "block"
+                  ? "3×3（9セル）タブ区切り"
+                  : "9×9（81セル）タブ区切り"}
+              </label>
+              <textarea
+                rows={10}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder={
+                  importMode === "block"
+                    ? "タスク1\tタスク2\tタスク3\nタスク4\tサブ目標\tタスク5\nタスク6\tタスク7\tタスク8"
+                    : "9行×9列のデータをスプレッドシートからコピーして貼り付け"
+                }
+                className="w-full resize-none rounded-sm border px-3 py-2 text-xs font-mono focus:outline-none"
+                style={{
+                  borderColor: C_BROWN_SOFT,
+                  background: C_BG,
+                  color: C_INK,
+                  fontFamily: "'Courier New', monospace",
+                }}
+              />
+            </div>
+          )}
 
           {importError && (
             <div
@@ -1622,8 +1723,8 @@ export default function ChartView({
               className="text-[11px] leading-relaxed"
               style={{ color: C_BROWN, fontFamily: FONT_SANS }}
             >
-              列: KPI / サブKPI / タイプ(achieve・habit) / 期日 / KDI / 頻度(daily・weekly・once) / 月目標(週次のみ) / 閾値% / KDI期日。
-              KPIは出現順に8個まで、各KPIのサブKPIは8個まで。サブKPI列を空にすると直前のサブKPIにKDIを追加（複数KDI可）。先頭に「KGI(改行→tab)中心目標」でテーマも設定。
+              列: KPI / サブKPI / タイプ(achieve・habit) / 期日 / KDI / 頻度(daily・weekly・monthly・once) / 月目標(週次・月次) / 閾値% / KDI期日 / KDI開始日(任意・最終列)。
+              既存のKPI名・サブKPI名は名前一致で照合し、一致すれば既存タスクにKDIを追記（既存の名前・期日は上書きしません）。一致しない場合のみ空きスロットに新規追加。先頭に「KGI(改行→tab)中心目標」でテーマも設定。
             </p>
           ) : (
             <p
@@ -1668,7 +1769,7 @@ export default function ChartView({
           >
             ①をClaude等に渡して目標を整理 →
             決まったら②を渡してタブ区切りに変換 →
-            出力を「詳細（全項目）」タブに貼り付けてインポート。
+            出力を .tsv ファイルに保存し「詳細（全項目）」タブからアップロード。
           </p>
           {PROMPTS.map((p, i) => (
             <div

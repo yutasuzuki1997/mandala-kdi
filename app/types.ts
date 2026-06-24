@@ -23,6 +23,8 @@ export interface Task {
   deadline: string | null;
   status: "active" | "done";
   habit_confirmed_month: string | null;
+  completed_at: string | null;
+  habit_confirmed_at: string | null;
 }
 
 export interface Kdi {
@@ -30,9 +32,10 @@ export interface Kdi {
   task_id: string;
   user_id: string;
   label: string;
-  freq: "daily" | "weekly" | "once";
+  freq: "daily" | "weekly" | "monthly" | "once";
   target_per_month: number | null;
   threshold: number;
+  start_date: string | null;
   deadline: string | null;
   created_at: string;
   task?: Task;
@@ -42,6 +45,7 @@ export interface KdiCheck {
   id: string;
   kdi_id: string;
   checked_date: string;
+  created_at?: string | null;
 }
 
 export interface FullChart extends Chart {

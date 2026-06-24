@@ -94,7 +94,15 @@ export function useAppData() {
   // ---------- Task ----------
   const upsertTask = useCallback(
     async (data: Record<string, unknown>) => {
-      const row = await db.upsertTask(data);
+      // Stamp completion time so the activity log can show when a task was
+      // marked done (and clear it when re-opened). Applies to every caller.
+      const patch = { ...data };
+      if (patch.status === "done" && patch.completed_at === undefined) {
+        patch.completed_at = new Date().toISOString();
+      } else if (patch.status === "active") {
+        patch.completed_at = null;
+      }
+      const row = await db.upsertTask(patch);
       // Refresh full chart if loaded
       if (fullChart) {
         await loadFullChart(fullChart.id);

@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Kdi, KdiCheck, FullChart } from "@/app/types";
+import { getActivityLog, type ActivityEntry } from "@/lib/db";
 
 interface Props {
   kdis: Kdi[];
   checks: KdiCheck[];
   charts: FullChart[];
   month: string;
+  userId: string;
   onChangeMonth: (month: string) => void;
 }
 
@@ -43,13 +45,32 @@ export default function StatsView({
   checks,
   charts,
   month,
+  userId,
   onChangeMonth,
 }: Props) {
+  const [view, setView] = useState<"rate" | "log">("rate");
+
+  // KDIs that actually existed in the selected month:
+  // created on/before that month, and not already ended before it.
+  const monthKdis = useMemo(
+    () =>
+      kdis.filter((k) => {
+        const startMonth = (k.start_date ?? k.created_at)?.slice(0, 7);
+        if (startMonth && startMonth > month) return false;
+        if (k.deadline && k.deadline.slice(0, 7) < month) return false;
+        return true;
+      }),
+    [kdis, month]
+  );
+
   const overallRate = useMemo(() => {
-    if (kdis.length === 0) return 0;
-    const total = kdis.reduce((sum, k) => sum + calcRate(k, checks, month), 0);
-    return Math.round(total / kdis.length);
-  }, [kdis, checks, month]);
+    if (monthKdis.length === 0) return 0;
+    const total = monthKdis.reduce(
+      (sum, k) => sum + calcRate(k, checks, month),
+      0
+    );
+    return Math.round(total / monthKdis.length);
+  }, [monthKdis, checks, month]);
 
   const completedTasks = useMemo(() => {
     let count = 0;
@@ -93,6 +114,30 @@ export default function StatsView({
 
   return (
     <div className="space-y-4">
+      {/* Sub-tabs */}
+      <div className="flex rounded-xl border bg-card p-1">
+        {([
+          { key: "rate", label: "実行率" },
+          { key: "log", label: "履歴" },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setView(t.key)}
+            className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${
+              view === t.key
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {view === "log" ? (
+        <ActivityLog userId={userId} />
+      ) : (
+        <>
       {/* Month nav */}
       <div className="flex items-center justify-between">
         <button
@@ -151,13 +196,13 @@ export default function StatsView({
         <h3 className="mb-2 text-xs font-medium text-muted-foreground">
           KDI別実行率
         </h3>
-        {kdis.length === 0 && (
+        {monthKdis.length === 0 && (
           <p className="py-4 text-center text-xs text-muted-foreground">
-            KDIがありません
+            この月のKDIはありません
           </p>
         )}
         <div className="space-y-2">
-          {kdis.map((kdi) => {
+          {monthKdis.map((kdi) => {
             const rate = calcRate(kdi, checks, month);
             const isAchieved = rate >= kdi.threshold;
             return (
@@ -181,8 +226,8 @@ export default function StatsView({
                       style={{ width: `${Math.min(rate, 100)}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-muted-foreground">
-                    {kdi.freq === "daily" ? "日次" : kdi.freq === "weekly" ? "週次" : "達成型"}
+                  <span className="text-[11px] text-muted-foreground">
+                    {kdi.freq === "daily" ? "日次" : kdi.freq === "weekly" ? "週次" : kdi.freq === "monthly" ? "月次" : "達成型"}
                   </span>
                 </div>
               </div>
@@ -190,6 +235,127 @@ export default function StatsView({
           })}
         </div>
       </section>
+        </>
+      )}
     </div>
+  );
+}
+
+const ACTIVITY_META: Record<
+  ActivityEntry["kind"],
+  { label: string; dot: string; tag: string }
+> = {
+  check: { label: "KDI実行", dot: "bg-blue-500", tag: "text-blue-700 bg-blue-100" },
+  task_done: { label: "達成", dot: "bg-green-500", tag: "text-green-700 bg-green-100" },
+  habit_confirmed: {
+    label: "習慣化確認",
+    dot: "bg-purple-500",
+    tag: "text-purple-700 bg-purple-100",
+  },
+};
+
+function formatDay(iso: string) {
+  // iso may be a full timestamp or a date-only "YYYY-MM-DDT00:00:00"
+  const [datePart, timePart] = iso.split("T");
+  const [, m, d] = datePart.split("-");
+  const hm =
+    timePart && !timePart.startsWith("00:00:00")
+      ? ` ${timePart.slice(0, 5)}`
+      : "";
+  return `${Number(m)}/${Number(d)}${hm}`;
+}
+
+function dayKey(iso: string) {
+  return iso.split("T")[0];
+}
+
+function ActivityLog({ userId }: { userId: string }) {
+  const [entries, setEntries] = useState<ActivityEntry[] | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+    let alive = true;
+    setEntries(null);
+    setError(false);
+    getActivityLog(userId)
+      .then((e) => alive && setEntries(e))
+      .catch(() => alive && setError(true));
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  // Group consecutive entries by calendar day for readable section headers.
+  const groups = useMemo(() => {
+    if (!entries) return [];
+    const out: { day: string; items: ActivityEntry[] }[] = [];
+    for (const e of entries) {
+      const k = dayKey(e.at);
+      const last = out[out.length - 1];
+      if (last && last.day === k) last.items.push(e);
+      else out.push({ day: k, items: [e] });
+    }
+    return out;
+  }, [entries]);
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+        アクティビティ履歴
+      </h3>
+
+      {error && (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          履歴を読み込めませんでした
+        </p>
+      )}
+      {!error && entries === null && (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          読み込み中…
+        </p>
+      )}
+      {!error && entries !== null && entries.length === 0 && (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          まだ履歴がありません
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {groups.map((g) => (
+          <div key={g.day}>
+            <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+              {g.day}
+            </p>
+            <div className="space-y-1.5">
+              {g.items.map((e, i) => {
+                const meta = ACTIVITY_META[e.kind];
+                return (
+                  <div
+                    key={`${e.kind}-${e.at}-${i}`}
+                    className="flex items-center gap-2.5 rounded-xl border bg-card px-3 py-2"
+                  >
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`}
+                    />
+                    <span
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium ${meta.tag}`}
+                    >
+                      {meta.label}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {e.label}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {formatDay(e.at)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

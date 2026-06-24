@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { createSupabaseServer } from "@/lib/supabase-server";
@@ -18,6 +18,21 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "Mandala KDI",
   description: "マンダラチャート × KDI管理アプリ",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Mandala KDI",
+  },
+  // Favicon + apple-touch-icon are provided via the app/icon.png and
+  // app/apple-icon.png file conventions (auto-injected by Next.js).
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#2e9e4f",
 };
 
 export default async function RootLayout({
@@ -33,6 +48,7 @@ export default async function RootLayout({
   return (
     <html lang="ja">
       <head>
+        <meta name="mobile-web-app-capable" content="yes" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link

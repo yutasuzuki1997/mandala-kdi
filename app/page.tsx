@@ -69,6 +69,7 @@ export default function Home() {
         await data.upsertTask({
           id: taskId,
           habit_confirmed_month: month,
+          habit_confirmed_at: now.toISOString(),
         });
       } else {
         await data.upsertTask({ id: taskId, status: "active" });
@@ -96,7 +97,18 @@ export default function Home() {
 
   const handleRescheduleKdi = useCallback(
     async (kdiId: string, deadline: string) => {
-      await db.upsertKdi({ id: kdiId, deadline });
+      await db.updateKdi(kdiId, { deadline });
+      await data.refreshKdis();
+    },
+    [data.refreshKdis]
+  );
+
+  const handleUpdateKdiDates = useCallback(
+    async (
+      kdiId: string,
+      patch: { start_date?: string | null; deadline?: string | null }
+    ) => {
+      await db.updateKdi(kdiId, patch);
       await data.refreshKdis();
     },
     [data.refreshKdis]
@@ -164,6 +176,38 @@ export default function Home() {
     [data.deleteKdi]
   );
 
+  const handleSplitKdi = useCallback(
+    async (
+      kdi: { id: string; task_id: string; threshold: number },
+      opts: {
+        baseLabel: string;
+        year: number;
+        startMonth: number;
+        endMonth: number;
+        perMonth: number;
+      }
+    ) => {
+      const { baseLabel, year, startMonth, endMonth, perMonth } = opts;
+      for (let m = startMonth; m <= endMonth; m++) {
+        const lastDay = new Date(year, m, 0).getDate();
+        const mm = String(m).padStart(2, "0");
+        await db.upsertKdi({
+          user_id: data.userId,
+          task_id: kdi.task_id,
+          label: `${baseLabel}（${m}月）`,
+          freq: "monthly",
+          target_per_month: perMonth,
+          threshold: kdi.threshold ?? 90,
+          start_date: `${year}-${mm}-01`,
+          deadline: `${year}-${mm}-${String(lastDay).padStart(2, "0")}`,
+        });
+      }
+      await db.deleteKdi(kdi.id);
+      await data.refreshKdis();
+    },
+    [data.userId, data.refreshKdis]
+  );
+
   return (
     <div
       className="mx-auto flex min-h-dvh max-w-[640px] flex-col"
@@ -171,7 +215,7 @@ export default function Home() {
     >
       {/* Header */}
       <header
-        className="sticky top-0 z-20 flex items-center gap-2.5 px-4 py-3"
+        className="sticky top-0 z-20 flex items-center gap-2.5 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))]"
         style={{
           background: "#ffffff",
           borderBottom: "1px solid #d3e3d2",
@@ -183,8 +227,16 @@ export default function Home() {
           className="flex h-8 w-8 items-center justify-center rounded-xl"
           style={{ background: "linear-gradient(135deg,#3aaf5b,#2e9e4f)", boxShadow: "0 2px 6px rgba(46,158,79,0.3)" }}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" />
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#ffffff">
+            <rect x="3" y="3" width="5" height="5" rx="1.2" />
+            <rect x="9.5" y="3" width="5" height="5" rx="1.2" />
+            <rect x="16" y="3" width="5" height="5" rx="1.2" />
+            <rect x="3" y="9.5" width="5" height="5" rx="1.2" />
+            <rect x="9.5" y="9.5" width="5" height="5" rx="1.2" fill="#bcd9bd" />
+            <rect x="16" y="9.5" width="5" height="5" rx="1.2" />
+            <rect x="3" y="16" width="5" height="5" rx="1.2" />
+            <rect x="9.5" y="16" width="5" height="5" rx="1.2" />
+            <rect x="16" y="16" width="5" height="5" rx="1.2" />
           </svg>
         </span>
         <h1
@@ -196,7 +248,7 @@ export default function Home() {
       </header>
 
       {/* Content */}
-      <main className="flex-1 overflow-y-auto px-4 py-4 pb-20">
+      <main className="flex-1 overflow-y-auto px-4 py-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
         {data.loading ? (
           <Skeleton />
         ) : (
@@ -206,6 +258,8 @@ export default function Home() {
                 kdis={data.kdis}
                 checks={data.checks}
                 charts={fullCharts}
+                month={data.month}
+                onChangeMonth={data.setMonth}
                 onToggleCheck={handleToggleCheck}
                 onConfirmHabit={handleConfirmHabit}
               />
@@ -242,7 +296,8 @@ export default function Home() {
                 charts={data.charts}
                 onUpsertKdi={handleUpsertKdi}
                 onDeleteKdi={handleDeleteKdi}
-                onRescheduleKdi={handleRescheduleKdi}
+                onUpdateKdiDates={handleUpdateKdiDates}
+                onSplitKdi={handleSplitKdi}
               />
             )}
             {tab === "stats" && (
@@ -251,6 +306,7 @@ export default function Home() {
                 checks={data.checks}
                 charts={fullCharts}
                 month={data.month}
+                userId={data.userId}
                 onChangeMonth={data.setMonth}
               />
             )}
@@ -266,14 +322,14 @@ export default function Home() {
           boxShadow: "0 -2px 10px rgba(46,158,79,0.25)",
         }}
       >
-        <div className="mx-auto flex max-w-[640px] px-1.5 py-1.5">
+        <div className="mx-auto flex max-w-[640px] px-1.5 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))]">
           {TABS.map((t) => {
             const active = tab === t.key;
             return (
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
-                className="relative flex flex-1 flex-col items-center gap-0.5 rounded-xl py-2 text-[10px] transition"
+                className="relative flex flex-1 flex-col items-center gap-0.5 rounded-xl py-2 text-[11px] transition"
                 style={{
                   fontFamily: "'Zen Maru Gothic', sans-serif",
                   color: "#ffffff",

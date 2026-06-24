@@ -156,6 +156,19 @@ export async function upsertKdi(data: Record<string, unknown>) {
   return row;
 }
 
+// Partial update (e.g. start_date / deadline). Unlike upsert, this never tries
+// to INSERT, so missing NOT NULL columns (user_id/label/...) aren't an issue.
+export async function updateKdi(id: string, data: Record<string, unknown>) {
+  const { data: row, error } = await supabase
+    .from("kdis")
+    .update(data)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return row;
+}
+
 export async function deleteKdi(id: string) {
   const { error } = await supabase.from("kdis").delete().eq("id", id);
   if (error) throw error;
@@ -188,6 +201,74 @@ export async function toggleCheck(kdiId: string, date: string) {
     .single();
   if (error) throw error;
   return data;
+}
+
+// ---------- Activity Log ----------
+
+export type ActivityEntry = {
+  kind: "check" | "task_done" | "habit_confirmed";
+  at: string; // ISO timestamp used for sorting (date-only entries use T00:00)
+  label: string; // KDI / task name
+  context: string | null; // sub-goal name etc.
+};
+
+export async function getActivityLog(
+  userId: string,
+  limit = 300
+): Promise<ActivityEntry[]> {
+  const [checksRes, tasksRes] = await Promise.all([
+    supabase
+      .from("kdi_checks")
+      .select("checked_date, created_at, kdi:kdis!inner(label, user_id)")
+      .eq("kdi.user_id", userId)
+      .order("checked_date", { ascending: false })
+      .limit(limit),
+    supabase
+      .from("tasks")
+      .select(
+        "label, status, completed_at, habit_confirmed_at, sub_goal:sub_goals!inner(label, chart:charts!inner(user_id))"
+      )
+      .eq("sub_goal.chart.user_id", userId)
+      .or("completed_at.not.is.null,habit_confirmed_at.not.is.null"),
+  ]);
+
+  if (checksRes.error) throw checksRes.error;
+  if (tasksRes.error) throw tasksRes.error;
+
+  const entries: ActivityEntry[] = [];
+
+  for (const c of (checksRes.data ?? []) as any[]) {
+    entries.push({
+      kind: "check",
+      at: c.created_at ?? `${c.checked_date}T00:00:00`,
+      label: c.kdi?.label ?? "(KDI)",
+      context: c.checked_date,
+    });
+  }
+
+  for (const t of (tasksRes.data ?? []) as any[]) {
+    if (!t.label) continue;
+    const sub = t.sub_goal?.label ?? null;
+    if (t.completed_at) {
+      entries.push({
+        kind: "task_done",
+        at: t.completed_at,
+        label: t.label,
+        context: sub,
+      });
+    }
+    if (t.habit_confirmed_at) {
+      entries.push({
+        kind: "habit_confirmed",
+        at: t.habit_confirmed_at,
+        label: t.label,
+        context: sub,
+      });
+    }
+  }
+
+  entries.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  return entries.slice(0, limit);
 }
 
 export async function getChecks(userId: string, month: string) {
