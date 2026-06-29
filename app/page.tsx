@@ -7,10 +7,11 @@ import TimelineView from "./components/TimelineView";
 import ChartView from "./components/ChartView";
 import KdiView from "./components/KdiView";
 import StatsView from "./components/StatsView";
+import RulesView from "./components/RulesView";
 import * as db from "@/lib/db";
 import type { FullChart } from "./types";
 
-type Tab = "today" | "timeline" | "chart" | "kdi" | "stats";
+type Tab = "today" | "timeline" | "chart" | "kdi" | "stats" | "rules";
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: "today", label: "今日", icon: "M12 2v10l4.24 4.24" },
@@ -18,6 +19,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: "chart", label: "チャート", icon: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" },
   { key: "kdi", label: "KDI", icon: "M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" },
   { key: "stats", label: "実績", icon: "M18 20V10M12 20V4M6 20v-6" },
+  { key: "rules", label: "ルール", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" },
 ];
 
 function Skeleton() {
@@ -310,6 +312,7 @@ export default function Home() {
                 onChangeMonth={data.setMonth}
               />
             )}
+            {tab === "rules" && <RulesView />}
           </>
         )}
       </main>
