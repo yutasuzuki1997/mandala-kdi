@@ -68,33 +68,32 @@ export default function Home() {
       if (confirmed) {
         const now = new Date();
         const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-        await data.upsertTask({
-          id: taskId,
+        await data.updateTask(taskId, {
           habit_confirmed_month: month,
           habit_confirmed_at: now.toISOString(),
         });
       } else {
-        await data.upsertTask({ id: taskId, status: "active" });
+        await data.updateTask(taskId, { status: "active" });
       }
       setFullChartsLoaded(false);
     },
-    [data.upsertTask]
+    [data.updateTask]
   );
 
   const handleCompleteTask = useCallback(
     async (taskId: string) => {
-      await data.upsertTask({ id: taskId, status: "done" });
+      await data.updateTask(taskId, { status: "done" });
       setFullChartsLoaded(false);
     },
-    [data.upsertTask]
+    [data.updateTask]
   );
 
   const handleRescheduleTask = useCallback(
     async (taskId: string, deadline: string) => {
-      await data.upsertTask({ id: taskId, deadline });
+      await data.updateTask(taskId, { deadline });
       setFullChartsLoaded(false);
     },
-    [data.upsertTask]
+    [data.updateTask]
   );
 
   const handleRescheduleKdi = useCallback(
@@ -295,7 +294,7 @@ export default function Home() {
             {tab === "kdi" && (
               <KdiView
                 kdis={data.kdis}
-                charts={data.charts}
+                charts={fullCharts}
                 onUpsertKdi={handleUpsertKdi}
                 onDeleteKdi={handleDeleteKdi}
                 onUpdateKdiDates={handleUpdateKdiDates}

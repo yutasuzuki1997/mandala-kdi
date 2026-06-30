@@ -112,6 +112,26 @@ export function useAppData() {
     [fullChart, loadFullChart]
   );
 
+  // Partial patch for an existing task (deadline/status/habit). Uses UPDATE not
+  // UPSERT so callers needn't resend sub_goal_id (which the upsert INSERT path
+  // requires for NOT NULL + RLS). Same completion stamping as upsertTask.
+  const updateTask = useCallback(
+    async (id: string, data: Record<string, unknown>) => {
+      const patch = { ...data };
+      if (patch.status === "done" && patch.completed_at === undefined) {
+        patch.completed_at = new Date().toISOString();
+      } else if (patch.status === "active") {
+        patch.completed_at = null;
+      }
+      const row = await db.updateTask(id, patch);
+      if (fullChart) {
+        await loadFullChart(fullChart.id);
+      }
+      return row;
+    },
+    [fullChart, loadFullChart]
+  );
+
   // ---------- KDI ----------
   const refreshKdis = useCallback(async () => {
     const k = await db.getKdis(userIdRef.current);
@@ -178,6 +198,7 @@ export function useAppData() {
     updateTheme,
     updateSubGoal,
     upsertTask,
+    updateTask,
     upsertKdi,
     deleteKdi,
     toggleCheck,

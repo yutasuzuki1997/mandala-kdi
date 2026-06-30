@@ -134,6 +134,19 @@ export async function upsertTask(
   return row;
 }
 
+// Partial update (e.g. deadline / status). Unlike upsert, this never tries to
+// INSERT, so the missing sub_goal_id (NOT NULL + RLS with-check) isn't an issue.
+export async function updateTask(id: string, data: Record<string, unknown>) {
+  const { data: row, error } = await supabase
+    .from("tasks")
+    .update(data)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return row;
+}
+
 // ---------- KDIs ----------
 
 export async function getKdis(userId: string) {
