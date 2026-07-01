@@ -73,6 +73,16 @@ export function useAppData() {
     [fullChart, loadFullChart]
   );
 
+  const swapSubGoals = useCallback(
+    async (aId: string, aPos: number, bId: string, bPos: number) => {
+      await db.swapSubGoals(aId, aPos, bId, bPos);
+      if (fullChart) {
+        await loadFullChart(fullChart.id);
+      }
+    },
+    [fullChart, loadFullChart]
+  );
+
   const updateTheme = useCallback(
     async (chartId: string, theme: string) => {
       await db.updateChartTheme(chartId, theme);
@@ -197,6 +207,7 @@ export function useAppData() {
     deleteChart,
     updateTheme,
     updateSubGoal,
+    swapSubGoals,
     upsertTask,
     updateTask,
     upsertKdi,

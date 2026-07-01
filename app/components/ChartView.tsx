@@ -28,9 +28,11 @@ interface Props {
   onDeleteChart: (id: string) => void;
   onUpdateTheme: (chartId: string, theme: string) => void;
   onUpdateSubGoal: (id: string, label: string) => void;
+  onSwapKpi?: (aSgId: string, bSgId: string) => void;
   onUpsertTask: (data: Record<string, unknown>) => void;
   onUpsertKdi: (data: Record<string, unknown>) => void;
   onDeleteKdi: (id: string) => void;
+  onRenameKdi?: (id: string, label: string) => void | Promise<void>;
   onRefreshKdis?: () => void | Promise<void>;
 }
 
@@ -407,12 +409,18 @@ function MandalaGrid({
   kdis,
   checks,
   onCellClick,
+  onSwapKpi,
 }: {
   cells: CellData[];
   kdis: Kdi[];
   checks: KdiCheck[];
   onCellClick: (cell: CellData) => void;
+  onSwapKpi?: (aSgId: string, bSgId: string) => void;
 }) {
+  // Drag & drop KPI reorder: dragging one KPI (sub-goal) label cell onto another
+  // swaps the two sub-goals (their tasks/KDIs move with them).
+  const [dragSgId, setDragSgId] = useState<string | null>(null);
+  const [overSgId, setOverSgId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{
     text: string;
     left: number;
@@ -465,14 +473,72 @@ function MandalaGrid({
         const isSgCenter =
           (!cell.isCenterBlock && cell.isCenter) ||
           (cell.isCenterBlock && !cell.isThemeCenter);
+        const isKpi = isSgCenter && !!cell.sgId && !!onSwapKpi;
+        const isDragging = isKpi && dragSgId === cell.sgId;
+        const isDropTarget =
+          isKpi && overSgId === cell.sgId && dragSgId !== cell.sgId;
+        const dndStyle: React.CSSProperties = {
+          ...style,
+          ...(isKpi ? { cursor: dragSgId ? "grabbing" : "grab" } : {}),
+          ...(isDragging ? { opacity: 0.35 } : {}),
+          ...(isDropTarget
+            ? { outline: `2px solid ${C_GOLD}`, outlineOffset: -2, zIndex: 2 }
+            : {}),
+        };
         return (
           <button
             key={i}
             type="button"
             title={cell.label || undefined}
+            draggable={isKpi}
+            onDragStart={
+              isKpi
+                ? (e) => {
+                    setDragSgId(cell.sgId!);
+                    e.dataTransfer.effectAllowed = "move";
+                  }
+                : undefined
+            }
+            onDragEnd={
+              isKpi
+                ? () => {
+                    setDragSgId(null);
+                    setOverSgId(null);
+                  }
+                : undefined
+            }
+            onDragOver={
+              isKpi
+                ? (e) => {
+                    if (dragSgId && dragSgId !== cell.sgId) {
+                      e.preventDefault();
+                      setOverSgId(cell.sgId!);
+                    }
+                  }
+                : undefined
+            }
+            onDragLeave={
+              isKpi
+                ? () => {
+                    if (overSgId === cell.sgId) setOverSgId(null);
+                  }
+                : undefined
+            }
+            onDrop={
+              isKpi
+                ? (e) => {
+                    e.preventDefault();
+                    if (dragSgId && cell.sgId && dragSgId !== cell.sgId) {
+                      onSwapKpi!(dragSgId, cell.sgId);
+                    }
+                    setDragSgId(null);
+                    setOverSgId(null);
+                  }
+                : undefined
+            }
             onClick={() => onCellClick(cell)}
             onMouseEnter={(e) => {
-              if (!cell.isThemeCenter)
+              if (!cell.isThemeCenter && !dragSgId)
                 e.currentTarget.style.background = "#f5f0e3";
               showTooltip(e, cell.label);
             }}
@@ -480,7 +546,7 @@ function MandalaGrid({
               e.currentTarget.style.background = restoreBg;
               setTooltip(null);
             }}
-            style={style}
+            style={dndStyle}
           >
             <FitText
               text={cell.label}
@@ -780,9 +846,11 @@ export default function ChartView({
   onDeleteChart,
   onUpdateTheme,
   onUpdateSubGoal,
+  onSwapKpi,
   onUpsertTask,
   onUpsertKdi,
   onDeleteKdi,
+  onRenameKdi,
   onRefreshKdis,
 }: Props) {
   const [selectedChartId, setSelectedChartId] = useState("");
@@ -1242,7 +1310,7 @@ export default function ChartView({
           >
             拡大 ↗
           </button>
-          <MandalaGrid cells={cells} kdis={kdis} checks={checks} onCellClick={handleCellClick} />
+          <MandalaGrid cells={cells} kdis={kdis} checks={checks} onCellClick={handleCellClick} onSwapKpi={onSwapKpi} />
         </div>
       )}
 
@@ -1288,7 +1356,7 @@ export default function ChartView({
                 maxWidth: "100%",
               }}
             >
-              <MandalaGrid cells={cells} kdis={kdis} checks={checks} onCellClick={handleCellClick} />
+              <MandalaGrid cells={cells} kdis={kdis} checks={checks} onCellClick={handleCellClick} onSwapKpi={onSwapKpi} />
             </div>
           </div>
         </div>
@@ -1400,7 +1468,24 @@ export default function ChartView({
                     return (
                       <div key={kdi.id} className="flex items-center gap-2 rounded-lg border bg-card p-2.5">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate">{kdi.label}</p>
+                          <input
+                            type="text"
+                            defaultValue={kdi.label}
+                            disabled={!onRenameKdi}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                            }}
+                            onBlur={async (e) => {
+                              const next = e.target.value.trim();
+                              if (!next || next === kdi.label) {
+                                e.target.value = kdi.label;
+                                return;
+                              }
+                              await onRenameKdi?.(kdi.id, next);
+                              await onRefreshKdis?.();
+                            }}
+                            className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm hover:border-input focus:border-primary focus:bg-background focus:outline-none"
+                          />
                           <div className="mt-1 flex items-center gap-1.5">
                             <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
                               kdi.freq === "daily"

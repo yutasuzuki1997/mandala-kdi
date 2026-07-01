@@ -155,6 +155,18 @@ export default function Home() {
     [data.updateSubGoal]
   );
 
+  const handleSwapKpi = useCallback(
+    async (aSgId: string, bSgId: string) => {
+      const sgs = data.fullChart?.sub_goals ?? [];
+      const a = sgs.find((s) => s.id === aSgId);
+      const b = sgs.find((s) => s.id === bSgId);
+      if (!a || !b || a.id === b.id) return;
+      await data.swapSubGoals(a.id, a.position, b.id, b.position);
+      setFullChartsLoaded(false);
+    },
+    [data.fullChart, data.swapSubGoals]
+  );
+
   const handleUpsertTask = useCallback(
     async (taskData: Record<string, unknown>) => {
       await data.upsertTask(taskData);
@@ -175,6 +187,14 @@ export default function Home() {
       await data.deleteKdi(id);
     },
     [data.deleteKdi]
+  );
+
+  const handleRenameKdi = useCallback(
+    async (id: string, label: string) => {
+      await db.updateKdi(id, { label });
+      await data.refreshKdis();
+    },
+    [data.refreshKdis]
   );
 
   const handleSplitKdi = useCallback(
@@ -285,9 +305,11 @@ export default function Home() {
                 onDeleteChart={handleDeleteChart}
                 onUpdateTheme={handleUpdateTheme}
                 onUpdateSubGoal={handleUpdateSubGoal}
+                onSwapKpi={handleSwapKpi}
                 onUpsertTask={handleUpsertTask}
                 onUpsertKdi={handleUpsertKdi}
                 onDeleteKdi={handleDeleteKdi}
+                onRenameKdi={handleRenameKdi}
                 onRefreshKdis={data.refreshKdis}
               />
             )}
