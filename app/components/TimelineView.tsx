@@ -21,6 +21,7 @@ interface TimelineItem {
   status?: string;
   type?: string;
   kdiFreq?: string;
+  chartName?: string;
 }
 
 function groupByMonth(items: TimelineItem[]) {
@@ -58,6 +59,18 @@ export default function TimelineView({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   }, []);
 
+  // Show chart name only when more than one chart exists (otherwise redundant).
+  const showChart = charts.length > 1;
+
+  // sub_goal_id → chart name, to label which chart a KDI belongs to.
+  const sgToChart = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of charts) {
+      for (const sg of c.sub_goals ?? []) m.set(sg.id, c.name);
+    }
+    return m;
+  }, [charts]);
+
   const items = useMemo(() => {
     const result: TimelineItem[] = [];
 
@@ -74,6 +87,7 @@ export default function TimelineView({
               deadline: t.deadline,
               status: t.status,
               type: t.type,
+              chartName: chart.name,
             });
           }
         }
@@ -82,18 +96,20 @@ export default function TimelineView({
 
     for (const k of kdis) {
       if (k.deadline) {
+        const sgId = (k.task as Task | undefined)?.sub_goal_id;
         result.push({
           id: k.id,
           kind: "kdi",
           label: k.label,
           deadline: k.deadline,
           kdiFreq: k.freq,
+          chartName: sgId ? sgToChart.get(sgId) : undefined,
         });
       }
     }
 
     return result;
-  }, [charts, kdis]);
+  }, [charts, kdis, sgToChart]);
 
   const groups = groupByMonth(items);
 
@@ -132,9 +148,16 @@ export default function TimelineView({
                     className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotColor(item)}`}
                   />
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm truncate ${item.status === "done" ? "line-through text-muted-foreground" : ""}`}>
-                      {item.label}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className={`min-w-0 truncate text-sm ${item.status === "done" ? "line-through text-muted-foreground" : ""}`}>
+                        {item.label}
+                      </p>
+                      {showChart && item.chartName && (
+                        <span className="shrink-0 whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {item.chartName}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-muted-foreground">
                       {item.deadline} ・{item.kind === "task" ? "タスク" : "KDI"}
                     </p>

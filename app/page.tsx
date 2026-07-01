@@ -7,10 +7,11 @@ import TimelineView from "./components/TimelineView";
 import ChartView from "./components/ChartView";
 import KdiView from "./components/KdiView";
 import StatsView from "./components/StatsView";
+import RulesView from "./components/RulesView";
 import * as db from "@/lib/db";
 import type { FullChart } from "./types";
 
-type Tab = "today" | "timeline" | "chart" | "kdi" | "stats";
+type Tab = "today" | "timeline" | "chart" | "kdi" | "stats" | "rules";
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: "today", label: "今日", icon: "M12 2v10l4.24 4.24" },
@@ -18,6 +19,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: "chart", label: "チャート", icon: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" },
   { key: "kdi", label: "KDI", icon: "M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" },
   { key: "stats", label: "実績", icon: "M18 20V10M12 20V4M6 20v-6" },
+  { key: "rules", label: "ルール", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" },
 ];
 
 function Skeleton() {
@@ -66,33 +68,32 @@ export default function Home() {
       if (confirmed) {
         const now = new Date();
         const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-        await data.upsertTask({
-          id: taskId,
+        await data.updateTask(taskId, {
           habit_confirmed_month: month,
           habit_confirmed_at: now.toISOString(),
         });
       } else {
-        await data.upsertTask({ id: taskId, status: "active" });
+        await data.updateTask(taskId, { status: "active" });
       }
       setFullChartsLoaded(false);
     },
-    [data.upsertTask]
+    [data.updateTask]
   );
 
   const handleCompleteTask = useCallback(
     async (taskId: string) => {
-      await data.upsertTask({ id: taskId, status: "done" });
+      await data.updateTask(taskId, { status: "done" });
       setFullChartsLoaded(false);
     },
-    [data.upsertTask]
+    [data.updateTask]
   );
 
   const handleRescheduleTask = useCallback(
     async (taskId: string, deadline: string) => {
-      await data.upsertTask({ id: taskId, deadline });
+      await data.updateTask(taskId, { deadline });
       setFullChartsLoaded(false);
     },
-    [data.upsertTask]
+    [data.updateTask]
   );
 
   const handleRescheduleKdi = useCallback(
@@ -154,6 +155,18 @@ export default function Home() {
     [data.updateSubGoal]
   );
 
+  const handleSwapKpi = useCallback(
+    async (aSgId: string, bSgId: string) => {
+      const sgs = data.fullChart?.sub_goals ?? [];
+      const a = sgs.find((s) => s.id === aSgId);
+      const b = sgs.find((s) => s.id === bSgId);
+      if (!a || !b || a.id === b.id) return;
+      await data.swapSubGoals(a.id, a.position, b.id, b.position);
+      setFullChartsLoaded(false);
+    },
+    [data.fullChart, data.swapSubGoals]
+  );
+
   const handleUpsertTask = useCallback(
     async (taskData: Record<string, unknown>) => {
       await data.upsertTask(taskData);
@@ -174,6 +187,14 @@ export default function Home() {
       await data.deleteKdi(id);
     },
     [data.deleteKdi]
+  );
+
+  const handleRenameKdi = useCallback(
+    async (id: string, label: string) => {
+      await db.updateKdi(id, { label });
+      await data.refreshKdis();
+    },
+    [data.refreshKdis]
   );
 
   const handleSplitKdi = useCallback(
@@ -284,16 +305,18 @@ export default function Home() {
                 onDeleteChart={handleDeleteChart}
                 onUpdateTheme={handleUpdateTheme}
                 onUpdateSubGoal={handleUpdateSubGoal}
+                onSwapKpi={handleSwapKpi}
                 onUpsertTask={handleUpsertTask}
                 onUpsertKdi={handleUpsertKdi}
                 onDeleteKdi={handleDeleteKdi}
+                onRenameKdi={handleRenameKdi}
                 onRefreshKdis={data.refreshKdis}
               />
             )}
             {tab === "kdi" && (
               <KdiView
                 kdis={data.kdis}
-                charts={data.charts}
+                charts={fullCharts}
                 onUpsertKdi={handleUpsertKdi}
                 onDeleteKdi={handleDeleteKdi}
                 onUpdateKdiDates={handleUpdateKdiDates}
@@ -310,6 +333,7 @@ export default function Home() {
                 onChangeMonth={data.setMonth}
               />
             )}
+            {tab === "rules" && <RulesView />}
           </>
         )}
       </main>

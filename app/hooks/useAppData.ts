@@ -73,6 +73,16 @@ export function useAppData() {
     [fullChart, loadFullChart]
   );
 
+  const swapSubGoals = useCallback(
+    async (aId: string, aPos: number, bId: string, bPos: number) => {
+      await db.swapSubGoals(aId, aPos, bId, bPos);
+      if (fullChart) {
+        await loadFullChart(fullChart.id);
+      }
+    },
+    [fullChart, loadFullChart]
+  );
+
   const updateTheme = useCallback(
     async (chartId: string, theme: string) => {
       await db.updateChartTheme(chartId, theme);
@@ -104,6 +114,26 @@ export function useAppData() {
       }
       const row = await db.upsertTask(patch);
       // Refresh full chart if loaded
+      if (fullChart) {
+        await loadFullChart(fullChart.id);
+      }
+      return row;
+    },
+    [fullChart, loadFullChart]
+  );
+
+  // Partial patch for an existing task (deadline/status/habit). Uses UPDATE not
+  // UPSERT so callers needn't resend sub_goal_id (which the upsert INSERT path
+  // requires for NOT NULL + RLS). Same completion stamping as upsertTask.
+  const updateTask = useCallback(
+    async (id: string, data: Record<string, unknown>) => {
+      const patch = { ...data };
+      if (patch.status === "done" && patch.completed_at === undefined) {
+        patch.completed_at = new Date().toISOString();
+      } else if (patch.status === "active") {
+        patch.completed_at = null;
+      }
+      const row = await db.updateTask(id, patch);
       if (fullChart) {
         await loadFullChart(fullChart.id);
       }
@@ -177,7 +207,9 @@ export function useAppData() {
     deleteChart,
     updateTheme,
     updateSubGoal,
+    swapSubGoals,
     upsertTask,
+    updateTask,
     upsertKdi,
     deleteKdi,
     toggleCheck,

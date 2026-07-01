@@ -50,6 +50,15 @@ function elapsedForMonth(dateStr: string) {
   return 1;
 }
 
+function ChartTag({ name }: { name: string | null }) {
+  if (!name) return null;
+  return (
+    <span className="shrink-0 whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+      {name}
+    </span>
+  );
+}
+
 function calcRate(kdi: Kdi, checks: KdiCheck[], selDate: string) {
   const kdiChecks = checks.filter((c) => c.kdi_id === kdi.id);
 
@@ -99,6 +108,24 @@ export default function TodayView({
       return true;
     });
   }, [kdis, selectedStr]);
+
+  // Show chart name only when more than one chart exists (otherwise redundant).
+  const showChart = charts.length > 1;
+
+  // sub_goal_id → chart name, to label which chart a KDI belongs to.
+  const sgToChart = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of charts) {
+      for (const sg of c.sub_goals ?? []) m.set(sg.id, c.name);
+    }
+    return m;
+  }, [charts]);
+
+  const chartNameOf = (kdi: Kdi): string | null => {
+    if (!showChart) return null;
+    const sgId = (kdi.task as Task | undefined)?.sub_goal_id;
+    return (sgId && sgToChart.get(sgId)) || null;
+  };
 
   // Collect all tasks from all charts
   const allTasks = useMemo(() => {
@@ -311,9 +338,12 @@ export default function TodayView({
                   )}
                 </button>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm truncate ${checked ? "line-through text-muted-foreground" : ""}`}>
-                    {kdi.label}
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className={`min-w-0 truncate text-sm ${checked ? "line-through text-muted-foreground" : ""}`}>
+                      {kdi.label}
+                    </p>
+                    <ChartTag name={chartNameOf(kdi)} />
+                  </div>
                   <div className="mt-1 h-1.5 w-full rounded-full bg-muted">
                     <div
                       className="h-full rounded-full bg-green-500 transition-all"
@@ -345,13 +375,16 @@ export default function TodayView({
                   className="flex items-center gap-3 rounded-xl border bg-card p-3"
                 >
                   <div className="flex-1 min-w-0">
-                    <p
-                      className={`text-sm truncate ${
-                        achieved ? "line-through text-muted-foreground" : ""
-                      }`}
-                    >
-                      {kdi.label}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p
+                        className={`min-w-0 truncate text-sm ${
+                          achieved ? "line-through text-muted-foreground" : ""
+                        }`}
+                      >
+                        {kdi.label}
+                      </p>
+                      <ChartTag name={chartNameOf(kdi)} />
+                    </div>
                     {kdi.deadline && (
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
                         〜{kdi.deadline}
@@ -422,9 +455,12 @@ export default function TodayView({
                   )}
                 </button>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm truncate ${checked ? "line-through text-muted-foreground" : ""}`}>
-                    {kdi.label}
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className={`min-w-0 truncate text-sm ${checked ? "line-through text-muted-foreground" : ""}`}>
+                      {kdi.label}
+                    </p>
+                    <ChartTag name={chartNameOf(kdi)} />
+                  </div>
                   <div className="mt-1 flex items-center gap-1.5">
                     <div className="h-1.5 flex-1 rounded-full bg-muted">
                       <div
@@ -476,9 +512,12 @@ export default function TodayView({
                     )}
                   </button>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm truncate ${checked ? "line-through text-muted-foreground" : ""}`}>
-                      {kdi.label}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className={`min-w-0 truncate text-sm ${checked ? "line-through text-muted-foreground" : ""}`}>
+                        {kdi.label}
+                      </p>
+                      <ChartTag name={chartNameOf(kdi)} />
+                    </div>
                     <div className="mt-1 flex items-center gap-1.5">
                       <div className="h-1.5 flex-1 rounded-full bg-muted">
                         <div

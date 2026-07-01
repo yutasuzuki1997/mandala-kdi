@@ -120,6 +120,28 @@ export async function updateSubGoal(id: string, label: string) {
   return data;
 }
 
+// Swap two sub-goals' positions (KPI reorder via drag & drop). Their tasks and
+// KDIs move with them since those are keyed by sub_goal_id, not position.
+// Uses a temporary position first to stay safe under a (chart_id, position)
+// unique constraint.
+export async function swapSubGoals(
+  aId: string,
+  aPos: number,
+  bId: string,
+  bPos: number
+) {
+  const step = async (id: string, position: number) => {
+    const { error } = await supabase
+      .from("sub_goals")
+      .update({ position })
+      .eq("id", id);
+    if (error) throw error;
+  };
+  await step(aId, -1);
+  await step(bId, aPos);
+  await step(aId, bPos);
+}
+
 // ---------- Tasks ----------
 
 export async function upsertTask(
@@ -134,6 +156,19 @@ export async function upsertTask(
   return row;
 }
 
+// Partial update (e.g. deadline / status). Unlike upsert, this never tries to
+// INSERT, so the missing sub_goal_id (NOT NULL + RLS with-check) isn't an issue.
+export async function updateTask(id: string, data: Record<string, unknown>) {
+  const { data: row, error } = await supabase
+    .from("tasks")
+    .update(data)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return row;
+}
+
 // ---------- KDIs ----------
 
 export async function getKdis(userId: string) {
@@ -141,6 +176,7 @@ export async function getKdis(userId: string) {
     .from("kdis")
     .select("*, task:tasks(*)")
     .eq("user_id", userId)
+    .is("archived_at", null)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data;
@@ -169,8 +205,14 @@ export async function updateKdi(id: string, data: Record<string, unknown>) {
   return row;
 }
 
+// Soft delete: archive the KDI instead of removing the row, so its kdi_checks
+// history stays intact for stats & the activity log. Archived KDIs are excluded
+// from getKdis (active views) but remain joinable from kdi_checks.
 export async function deleteKdi(id: string) {
-  const { error } = await supabase.from("kdis").delete().eq("id", id);
+  const { error } = await supabase
+    .from("kdis")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) throw error;
 }
 

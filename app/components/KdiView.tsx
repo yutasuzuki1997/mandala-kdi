@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import Modal from "./Modal";
-import type { Chart, Kdi } from "@/app/types";
+import type { FullChart, Kdi, Task } from "@/app/types";
 
 type Freq = Kdi["freq"];
 
@@ -31,7 +31,7 @@ const FREQ_BADGE: Record<Freq, string> = {
 
 interface Props {
   kdis: Kdi[];
-  charts: Chart[];
+  charts: FullChart[];
   onUpsertKdi: (data: Record<string, unknown>) => void;
   onDeleteKdi: (id: string) => void;
   onUpdateKdiDates: (
@@ -75,6 +75,24 @@ export default function KdiView({
     };
   }, [kdis]);
 
+  // Show chart name only when more than one chart exists (otherwise redundant).
+  const showChart = charts.length > 1;
+
+  // sub_goal_id → chart name, to label which chart a KDI belongs to.
+  const sgToChart = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of charts) {
+      for (const sg of c.sub_goals ?? []) m.set(sg.id, c.name);
+    }
+    return m;
+  }, [charts]);
+
+  const chartNameOf = (kdi: Kdi): string | null => {
+    if (!showChart) return null;
+    const sgId = (kdi.task as Task | undefined)?.sub_goal_id;
+    return (sgId && sgToChart.get(sgId)) || null;
+  };
+
   const openSplit = (kdi: Kdi) => setSplitTarget(kdi);
   const openReschedule = (kdi: Kdi) => {
     setRescheduleTarget(kdi);
@@ -102,6 +120,7 @@ export default function KdiView({
                 <KdiCard
                   key={kdi.id}
                   kdi={kdi}
+                  chartName={chartNameOf(kdi)}
                   onDelete={() => onDeleteKdi(kdi.id)}
                   onReschedule={() => openReschedule(kdi)}
                   onSplit={() => openSplit(kdi)}
@@ -467,11 +486,13 @@ function SplitModal({
 
 function KdiCard({
   kdi,
+  chartName,
   onDelete,
   onReschedule,
   onSplit,
 }: {
   kdi: Kdi;
+  chartName: string | null;
   onDelete: () => void;
   onReschedule: () => void;
   onSplit: () => void;
@@ -479,20 +500,27 @@ function KdiCard({
   return (
     <div className="flex items-center gap-3 rounded-xl border bg-card p-3">
       <div className="flex-1 min-w-0">
-        <p className="text-sm truncate">{kdi.label}</p>
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="flex items-center gap-1.5">
+          <p className="min-w-0 truncate text-sm">{kdi.label}</p>
+          {chartName && (
+            <span className="shrink-0 whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {chartName}
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 flex items-center gap-2 overflow-hidden">
           <span
-            className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium ${FREQ_BADGE[kdi.freq]}`}
+            className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[11px] font-medium ${FREQ_BADGE[kdi.freq]}`}
           >
             {FREQ_LABEL[kdi.freq]}
           </span>
           {(kdi.start_date || kdi.deadline) && (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
               {kdi.start_date ?? ""}〜{kdi.deadline ?? ""}
             </span>
           )}
           {kdi.task && (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="truncate text-[11px] text-muted-foreground">
               ← {(kdi.task as any).label}
             </span>
           )}
