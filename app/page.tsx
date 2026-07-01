@@ -155,16 +155,18 @@ export default function Home() {
     [data.updateSubGoal]
   );
 
-  const handleSwapKpi = useCallback(
-    async (aSgId: string, bSgId: string) => {
-      const sgs = data.fullChart?.sub_goals ?? [];
-      const a = sgs.find((s) => s.id === aSgId);
-      const b = sgs.find((s) => s.id === bSgId);
+  const handleSwapTask = useCallback(
+    async (aTaskId: string, bTaskId: string) => {
+      const tasks = (data.fullChart?.sub_goals ?? []).flatMap(
+        (sg) => sg.tasks ?? []
+      );
+      const a = tasks.find((t) => t.id === aTaskId);
+      const b = tasks.find((t) => t.id === bTaskId);
       if (!a || !b || a.id === b.id) return;
-      await data.swapSubGoals(a.id, a.position, b.id, b.position);
+      await data.swapTasks(a.id, a.position, b.id, b.position);
       setFullChartsLoaded(false);
     },
-    [data.fullChart, data.swapSubGoals]
+    [data.fullChart, data.swapTasks]
   );
 
   const handleUpsertTask = useCallback(
@@ -305,7 +307,7 @@ export default function Home() {
                 onDeleteChart={handleDeleteChart}
                 onUpdateTheme={handleUpdateTheme}
                 onUpdateSubGoal={handleUpdateSubGoal}
-                onSwapKpi={handleSwapKpi}
+                onSwapTask={handleSwapTask}
                 onUpsertTask={handleUpsertTask}
                 onUpsertKdi={handleUpsertKdi}
                 onDeleteKdi={handleDeleteKdi}

@@ -142,6 +142,27 @@ export async function swapSubGoals(
   await step(aId, bPos);
 }
 
+// Swap two tasks' positions (sub-KPI reorder within a KPI block via drag & drop).
+// Uses a temporary position first to stay safe under a (sub_goal_id, position)
+// unique constraint.
+export async function swapTasks(
+  aId: string,
+  aPos: number,
+  bId: string,
+  bPos: number
+) {
+  const step = async (id: string, position: number) => {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ position })
+      .eq("id", id);
+    if (error) throw error;
+  };
+  await step(aId, -1);
+  await step(bId, aPos);
+  await step(aId, bPos);
+}
+
 // ---------- Tasks ----------
 
 export async function upsertTask(

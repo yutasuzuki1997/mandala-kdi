@@ -28,7 +28,7 @@ interface Props {
   onDeleteChart: (id: string) => void;
   onUpdateTheme: (chartId: string, theme: string) => void;
   onUpdateSubGoal: (id: string, label: string) => void;
-  onSwapKpi?: (aSgId: string, bSgId: string) => void;
+  onSwapTask?: (aTaskId: string, bTaskId: string) => void;
   onUpsertTask: (data: Record<string, unknown>) => void;
   onUpsertKdi: (data: Record<string, unknown>) => void;
   onDeleteKdi: (id: string) => void;
@@ -409,18 +409,27 @@ function MandalaGrid({
   kdis,
   checks,
   onCellClick,
-  onSwapKpi,
+  onSwapTask,
 }: {
   cells: CellData[];
   kdis: Kdi[];
   checks: KdiCheck[];
   onCellClick: (cell: CellData) => void;
-  onSwapKpi?: (aSgId: string, bSgId: string) => void;
+  onSwapTask?: (aTaskId: string, bTaskId: string) => void;
 }) {
-  // Drag & drop KPI reorder: dragging one KPI (sub-goal) label cell onto another
-  // swaps the two sub-goals (their tasks/KDIs move with them).
-  const [dragSgId, setDragSgId] = useState<string | null>(null);
-  const [overSgId, setOverSgId] = useState<string | null>(null);
+  // Pointer-based drag & drop to reorder sub-KPI (task) cells WITHIN the same KPI
+  // block. Uses Pointer Events so it works on both touch (mobile/PWA) and mouse.
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [overTaskId, setOverTaskId] = useState<string | null>(null);
+  const dragMeta = useRef<{
+    id: string;
+    sgId: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const overRef = useRef<string | null>(null);
+  const suppressClick = useRef(false);
   const [tooltip, setTooltip] = useState<{
     text: string;
     left: number;
@@ -473,13 +482,22 @@ function MandalaGrid({
         const isSgCenter =
           (!cell.isCenterBlock && cell.isCenter) ||
           (cell.isCenterBlock && !cell.isThemeCenter);
-        const isKpi = isSgCenter && !!cell.sgId && !!onSwapKpi;
-        const isDragging = isKpi && dragSgId === cell.sgId;
+        // Sub-KPI (task) cell: draggable to reorder within its KPI block.
+        const isTaskCell =
+          !cell.isCenter &&
+          !cell.isCenterBlock &&
+          !!cell.task &&
+          !!cell.sgId &&
+          !!onSwapTask;
+        const taskId = cell.task?.id;
+        const isDragging = isTaskCell && dragTaskId === taskId;
         const isDropTarget =
-          isKpi && overSgId === cell.sgId && dragSgId !== cell.sgId;
+          isTaskCell && overTaskId === taskId && dragTaskId !== taskId;
         const dndStyle: React.CSSProperties = {
           ...style,
-          ...(isKpi ? { cursor: dragSgId ? "grabbing" : "grab" } : {}),
+          ...(isTaskCell
+            ? { cursor: dragTaskId ? "grabbing" : "grab", touchAction: "none" }
+            : {}),
           ...(isDragging ? { opacity: 0.35 } : {}),
           ...(isDropTarget
             ? { outline: `2px solid ${C_GOLD}`, outlineOffset: -2, zIndex: 2 }
@@ -490,55 +508,92 @@ function MandalaGrid({
             key={i}
             type="button"
             title={cell.label || undefined}
-            draggable={isKpi}
-            onDragStart={
-              isKpi
+            data-taskid={isTaskCell ? taskId : undefined}
+            data-sgid={isTaskCell ? cell.sgId : undefined}
+            onPointerDown={
+              isTaskCell
                 ? (e) => {
-                    setDragSgId(cell.sgId!);
-                    e.dataTransfer.effectAllowed = "move";
+                    dragMeta.current = {
+                      id: taskId!,
+                      sgId: cell.sgId!,
+                      startX: e.clientX,
+                      startY: e.clientY,
+                      moved: false,
+                    };
+                    try {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    } catch {}
                   }
                 : undefined
             }
-            onDragEnd={
-              isKpi
-                ? () => {
-                    setDragSgId(null);
-                    setOverSgId(null);
-                  }
-                : undefined
-            }
-            onDragOver={
-              isKpi
+            onPointerMove={
+              isTaskCell
                 ? (e) => {
-                    if (dragSgId && dragSgId !== cell.sgId) {
-                      e.preventDefault();
-                      setOverSgId(cell.sgId!);
+                    const m = dragMeta.current;
+                    if (!m) return;
+                    if (!m.moved) {
+                      if (
+                        Math.hypot(e.clientX - m.startX, e.clientY - m.startY) <
+                        8
+                      )
+                        return;
+                      m.moved = true;
+                      setDragTaskId(m.id);
                     }
+                    const el = document.elementFromPoint(
+                      e.clientX,
+                      e.clientY
+                    ) as HTMLElement | null;
+                    const btn = el?.closest(
+                      "[data-taskid]"
+                    ) as HTMLElement | null;
+                    const tid = btn?.getAttribute("data-taskid") ?? null;
+                    const sid = btn?.getAttribute("data-sgid") ?? null;
+                    const next =
+                      tid && sid === m.sgId && tid !== m.id ? tid : null;
+                    overRef.current = next;
+                    setOverTaskId(next);
                   }
                 : undefined
             }
-            onDragLeave={
-              isKpi
-                ? () => {
-                    if (overSgId === cell.sgId) setOverSgId(null);
-                  }
-                : undefined
-            }
-            onDrop={
-              isKpi
+            onPointerUp={
+              isTaskCell
                 ? (e) => {
-                    e.preventDefault();
-                    if (dragSgId && cell.sgId && dragSgId !== cell.sgId) {
-                      onSwapKpi!(dragSgId, cell.sgId);
+                    const m = dragMeta.current;
+                    dragMeta.current = null;
+                    try {
+                      e.currentTarget.releasePointerCapture(e.pointerId);
+                    } catch {}
+                    if (m && m.moved) {
+                      suppressClick.current = true;
+                      const target = overRef.current;
+                      if (target && target !== m.id) onSwapTask!(m.id, target);
                     }
-                    setDragSgId(null);
-                    setOverSgId(null);
+                    overRef.current = null;
+                    setDragTaskId(null);
+                    setOverTaskId(null);
                   }
                 : undefined
             }
-            onClick={() => onCellClick(cell)}
+            onPointerCancel={
+              isTaskCell
+                ? () => {
+                    dragMeta.current = null;
+                    overRef.current = null;
+                    setDragTaskId(null);
+                    setOverTaskId(null);
+                  }
+                : undefined
+            }
+            onClick={() => {
+              if (suppressClick.current) {
+                suppressClick.current = false;
+                return;
+              }
+              onCellClick(cell);
+            }}
             onMouseEnter={(e) => {
-              if (!cell.isThemeCenter && !dragSgId)
+              if (!cell.isThemeCenter && !dragTaskId)
                 e.currentTarget.style.background = "#f5f0e3";
               showTooltip(e, cell.label);
             }}
@@ -846,7 +901,7 @@ export default function ChartView({
   onDeleteChart,
   onUpdateTheme,
   onUpdateSubGoal,
-  onSwapKpi,
+  onSwapTask,
   onUpsertTask,
   onUpsertKdi,
   onDeleteKdi,
@@ -1310,7 +1365,7 @@ export default function ChartView({
           >
             拡大 ↗
           </button>
-          <MandalaGrid cells={cells} kdis={kdis} checks={checks} onCellClick={handleCellClick} onSwapKpi={onSwapKpi} />
+          <MandalaGrid cells={cells} kdis={kdis} checks={checks} onCellClick={handleCellClick} onSwapTask={onSwapTask} />
         </div>
       )}
 
@@ -1356,7 +1411,7 @@ export default function ChartView({
                 maxWidth: "100%",
               }}
             >
-              <MandalaGrid cells={cells} kdis={kdis} checks={checks} onCellClick={handleCellClick} onSwapKpi={onSwapKpi} />
+              <MandalaGrid cells={cells} kdis={kdis} checks={checks} onCellClick={handleCellClick} onSwapTask={onSwapTask} />
             </div>
           </div>
         </div>
